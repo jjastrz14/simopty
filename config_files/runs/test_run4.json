@@ -1,0 +1,65 @@
+
+{
+
+    "arch":{
+            "topology" : "torus",
+            "k" : 3,
+            "n" : 2,
+            "use_read_write" : 1,
+            "routing_function" : "dim_order",
+            "num_vcs" : 16,
+            "user_defined_traffic" : 1,
+            "watch_out" : "-"
+        },
+        
+    "workload" : [
+
+        {
+            "id" : 0,
+            "layer_id": 0,
+            "node" : 0,
+            "type" : "COMP_OP",
+            "ct_required" : 30,
+            "dep" : [-1]
+        },
+        {
+            "id" : 1,
+            "layer_id": 0,
+            "node" : 1,
+            "type" : "COMP_OP",
+            "ct_required" : 20,
+            "dep" : [-1]
+        },
+        {
+            "id" : 2,
+            "src" : 0,
+            "dst" : 4,
+            "size" : 10,
+            "dep" : [0],
+            "type" : "WRITE_REQ",
+            "cl" : 0,
+            "pt_required" : 10
+        }, 
+        {
+            "id" : 3,
+            "src" : 1,
+            "dst" : 4,
+            "size" : 7,
+            "dep" : [1],
+            "type" : "WRITE_REQ",
+            "cl" : 0,
+            "pt_required" : 7
+        },
+        {
+            "id" : 4,
+            "layer_id": 1,
+            "node" : 4,
+            "type" : "COMP_OP",
+            "ct_required" : 10,
+            "dep" : [2,3]
+        }
+        
+        
+
+    ]
+}
