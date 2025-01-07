@@ -9,9 +9,9 @@ Under the supervision of: Politecnico di Milano
 '''
 
 """
-The graph.py module defines the class DepGraph, which is used to represent a dependency graph.
+The graph.py module defines the class TaskGraph, which is used to represent a dependency graph.
 Specifically, we use it as a wrapper for the networkx.DiGraph class, to represent a directed graph. 
-The DepGraph class can be initialized direcly from a JSON-like list of elements, or progressively by adding tasks and dependencies.
+The TaskGraph class can be initialized direcly from a JSON-like list of elements, or progressively by adding tasks and dependencies.
 representing the computation and communication operations of a split-compiled neural network.
 """
 
@@ -21,7 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-class DepGraph:
+class TaskGraph:
 
     NODE_INFO = "Node ID: {0}\nType: {1}\nLayer ID: {2}\nComputing Time Required: {3}\nDependencies: {4}"
     EDGE_INFO = "Edge ID: {0}\nType: {1}\nData Size: {2}\nProcessing Time Required: {3}\nDependencies: {4}"
@@ -142,40 +142,6 @@ class DepGraph:
                 edge["dst"] = self.DRAIN_POINT
 
         return self.nodes_mapping, self.edges_mapping
-
-
-    def add_task(self, id, layer_id, color = "lightblue"):
-        """
-        Adds a task (node) to the graph.
-
-        Parameters
-        ----------
-        id : int
-            The id of the task. If None, the id is automatically assigned.
-        type : str 
-            The type of the task.
-        layer_id : int
-            The layer id of the task.
-        color : str
-            The color of the task.
-        """
-        if id is None:
-            id = self.id
-            self.id += 1
-        self.graph.add_node(id, layer = layer_id, color = color)
-
-    def add_dependency(self, task_id1, task_id2, id):
-        """
-        Adds a dependency (edge) to the graph.
-
-        Parameters
-        ----------
-        task_id1 : int
-            The id of the source task.
-        task_id2 : int
-            The id of the destination task.
-        """
-        self.graph.add_edge(task_id1, task_id2, id = id)
 
     def add_task_fully_qualified(self, id, type, layer_id, ct_required, dep, color = "lightblue"):
         """
@@ -375,7 +341,35 @@ class DepGraph:
                     break
         assert len(nodes) == 0 and len(edges) == 0
         return structure
-                                    
+    
+    def add_task_dep(self, id, dep):
+        """
+        Adds a dependency to a task.
+
+        Parameters
+        ----------
+        id : int
+            The id of the task.
+        dep : int or list
+            The id of the dependency or a list of dependencies.
+        
+        Returns
+        -------
+        None
+        """
+
+        # find the node in the graph corresponding to the id
+        node = self.nodes.get(id)
+        if node is None:
+            return
+        # if the dependency is a single integer
+        if isinstance(dep, int):
+            node["dep"].append(dep)
+        # if the dependency is a list
+        elif isinstance(dep, list):
+            node["dep"].extend(dep)
+
+                     
     def get_node(self, id,  verbose = False):
         """
         Returns the node with the given id.
@@ -480,52 +474,5 @@ class DepGraph:
 
         return list(self.edges.values())
     
-    def get_graph(self):
-        """
-        Returns the graph.
-
-        Parameters
-        ----------
-        None
-        
-        Returns
-        -------
-        networkx.DiGraph
-            The graph.
-        """
-
-        return self.graph
-    
-    def plot_graph(self, file_path = None):
-        """
-        Plots the nodes and edges in a top-down fashion.
-
-        Parameters
-        ----------
-        file_path : str
-            The path where to save the plot.
-        
-        Returns
-        -------
-        None
-        """
-
-        pos = nx.multipartite_layout(self.graph, subset_key="layer")
-        colors = [self.graph.nodes[node]["color"] for node in self.graph.nodes()]
-        labels = {node: node for node in self.graph.nodes()}
-        node_size = 1000
-        node_shape = "s"
-
-        for node_id, node in enumerate(self.graph.nodes()):
-            nx.draw_networkx_nodes(self.graph, pos, nodelist = [node], node_color = colors[node_id], node_size = node_size, node_shape = node_shape)
-            nx.draw_networkx_labels(self.graph, pos, labels = labels)
-        nx.draw_networkx_edges(self.graph, pos, node_size = node_size, node_shape = node_shape)
-        plt.tight_layout()
-        plt.axis("off")
-        
-        if file_path is not None:
-            file_path = os.path.join(os.path.dirname(__file__), file_path)
-            plt.savefig(file_path)
-        plt.show()
 
 

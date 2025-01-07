@@ -13,16 +13,24 @@ Under the supervision of: Politecnico di Milano
 The optimizer.py module contains the classes used to perform the optimization of the mapping of a split-compiled NN onto a k-dimensional NoC grid.
 """
 
-import os
+import os, sys
+import logging
 import enum
 import numpy as np
 import simulator_stub as ss
-import mapper as mp
+import mapper as ma
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.animation as animation
-from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Union, ClassVar, Optional
 from dirs import *
+from utils.plotting_utils import plot_mapping_gif
+
+import ctypes as c
+from contextlib import closing
+import multiprocessing as mp
+from utils.aco_utils import Ant, vardict
 
 
 class OptimizerType(enum.Enum):
@@ -30,36 +38,15 @@ class OptimizerType(enum.Enum):
     Enum class representing the type of optimizer.
     """
     ACO = "ACO"
+    GA = "GA"
 
 
-class OptimizationParameters:
+@dataclass
+class ACOParameters:
     """
-    Class representing the parameters of the optimization algorithm.
-    In general, different optimizers may require different parameters.
-    """
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
+    Dataclass representing the parameters of the optimization algorithm.
 
-
-class BaseOpt :
-    def __init__(self, optimizer_type):
-        self.optimizer_type = optimizer_type
-
-    def __str__(self):
-        return self.optimizer_type.value
-    
-    def run(self):
-        pass
-    
-
-class AntColony(BaseOpt):
-    def __init__(self, optimization_parameters, domain, task_graph):
-        """
-        
-        Parameters:
-        -----------
-        optimization_parameters : OptimizationParameters
-            The parameters of the optimization algorithm:
+    The parameters of the optimization algorithm:
             - alpha : float
                 The alpha parameter of the ACO algorithm.
             - beta : float
@@ -72,25 +59,52 @@ class AntColony(BaseOpt):
                 The number of iterations of the algorithm.
             - n_best : int
                 The number of best solutions to keep track of.
+            - starting_rho : float
+    """
+    alpha : float = 1.0
+    beta : float = 1.0
+    rho : Union[float, None] = None
+    n_ants : int = 10
+    n_iterations : int = 100
+    n_best : int = 10
+    rho_start : Union[float, None] = None
+    rho_end : Union[float, None] = None
 
+
+class BaseOpt :
+
+    optimizerType : ClassVar[Optional[Union[str, OptimizerType]]] = None
+
+    def __str__(self):
+        return self.optimizerType.value
+    
+    def run(self):
+        pass
+    
+
+"""
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- ACO -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+"""
+class AntColony(BaseOpt):
+
+    optimizerType : ClassVar[Union[str, OptimizerType]] = OptimizerType.ACO
+
+    def __init__(self, optimization_parameters, domain, task_graph):
+        """
+        
+        Parameters:
+        -----------
+        optimization_parameters : ACOParameters
+            The parameters of the optimization algorithm.
         domain : Grid
             The domain of the optimization problem, the NoC grid.
-        task_graph : DepGraph
+        task_graph : TaskGraph
             The dependency graph of the tasks to be mapped onto the NoC grid.
 
         """
 
-        super().__init__(OptimizerType.ACO)
-        self.alpha = optimization_parameters.alpha # alpha parameter of the ACO algorithm
-        self.beta = optimization_parameters.beta # beta parameter of the ACO algorithm
-        self.rho = optimization_parameters.rho if hasattr(optimization_parameters, "rho") else None
-        self.rho_start = optimization_parameters.starting_rho if hasattr(optimization_parameters, "starting_rho") else None
-        self.rho_end = optimization_parameters.ending_rho if hasattr(optimization_parameters, "ending_rho") else None
-
-        #self.q0 = optimization_parameters.q0 
-        self.n_ants = optimization_parameters.n_ants
-        self.n_iterations = optimization_parameters.n_iterations
-        self.n_best = optimization_parameters.n_best
+        super().__init__()
+        self.par = optimization_parameters
 
         # --- Domain and Task Graph ---
         self.domain = domain
@@ -219,14 +233,17 @@ class AntColony(BaseOpt):
         shortest_path = None
         all_time_shortest_path = ("placeholder", np.inf)
 
-        if self.rho_start is not None and self.rho_end is not None:
-            self.rho = self.rho_start
-            rho_step = (self.rho_end - self.rho_start) / self.n_iterations
+        if self.par.rho_start is not None and self.par.rho_end is not None:
+            self.rho = self.par.rho_start
+            rho_step = (self.par.rho_end - self.par.rho_start) / self.par.n_iterations
+        else:
+            self.rho = self.par.rho
+            rho_step = 0
 
         if show_traces:
-            all_time_shortest_path = self.run_and_show_traces(single_iteration, once_every = once_every, n_iterations = self.n_iterations, rho_step = rho_step)
+            all_time_shortest_path = self.run_and_show_traces(single_iteration, once_every = once_every, n_iterations = self.par.n_iterations, rho_step = rho_step)
         else:
-            for i in range(self.n_iterations):
+            for i in range(self.par.n_iterations):
                 shortest_path = single_iteration(i, once_every, rho_step)
                 if shortest_path[1] < all_time_shortest_path[1]:
                     all_time_shortest_path = shortest_path 
@@ -245,7 +262,7 @@ class AntColony(BaseOpt):
             outbound_pheromones = self.tau[d_level-1,current,:]
             outbound_heuristics = self.eta[d_level-2, current, :]
 
-        row = (outbound_pheromones ** self.alpha) * (outbound_heuristics ** self.beta)
+        row = (outbound_pheromones ** self.par.alpha) * (outbound_heuristics ** self.par.beta)
         norm_row = (row / row.sum()).flatten()
 
         if norm_row is np.NaN:
@@ -276,13 +293,13 @@ class AntColony(BaseOpt):
         # constuct the mapping form the path
         mapping = {task_id : int(pe) for task_id, pe, _ in path if task_id != "start" and task_id != "end"}
 
-        mapper = mp.Mapper()
+        mapper = ma.Mapper()
         mapper.init(self.task_graph, self.domain)
         mapper.set_mapping(mapping)
         mapper.mapping_to_json(CONFIG_DUMP_DIR + "/dump.json", file_to_append=ARCH_FILE)
         
         if verbose:
-            mapper.plot_mapping_gif()
+            plot_mapping_gif(mapper)
 
         stub = ss.SimulatorStub()
         result = stub.run_simulation(CONFIG_DUMP_DIR + "/dump.json")
@@ -291,24 +308,26 @@ class AntColony(BaseOpt):
 
     def generate_colony_paths(self):
         colony_paths = []
-        for _ in range(self.n_ants):
+        for _ in range(self.par.n_ants):
             ant_path = self.generate_ant_path()
             colony_paths.append((ant_path, self.path_length(ant_path)))
         return colony_paths
     
     def evaporate_pheromones(self, step):
-        if self.rho is not None:
-            self.rho += step
+        if self.par.rho is not None:
+            self.par.rho += step
+        else:
+            raise ValueError("The evaporation rate is not set")
         self.tau = (1 - self.rho) * self.tau
 
     def update_pheromones(self, colony_paths):
-        if self.n_best is None:
-            self.n_best = len(colony_paths)
+        if self.par.n_best is None:
+            self.par.n_best = len(colony_paths)
         sorted_paths = sorted(colony_paths, key = lambda x : x[1])
-        best_paths = sorted_paths[:self.n_best]
+        best_paths = sorted_paths[:self.par.n_best]
         for path, path_length in best_paths:
             for d_level, path_node in enumerate(path):
-                if path_node[1] == -1:
+                if path_node[1] == -1: # starting decisione level
                     self.tau_start[path_node[2]] += 1 / path_length
                 elif d_level-1 < self.tau.shape[0]:
                     self.tau[d_level-1, path_node[1], path_node[2]] += 1 / path_length
@@ -319,3 +338,272 @@ class AntColony(BaseOpt):
         """
         self.eta = np.random.rand(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
     
+
+class ParallelAntColony(AntColony):
+
+    optimizerType : ClassVar[Union[str, OptimizerType]] = OptimizerType.ACO
+
+
+    def __init__(self, optimization_parameters, domain, task_graph):
+        """
+        
+        Parameters:
+        -----------
+        optimization_parameters : ACOParameters
+            The parameters of the optimization algorithm.
+        domain : Grid
+            The domain of the optimization problem, the NoC grid.
+        task_graph : TaskGraph
+            The dependency graph of the tasks to be mapped onto the NoC grid.
+
+        """
+
+        super().__init__(optimization_parameters, domain, task_graph)
+
+        # self.logger = mp.log_to_stderr()
+        # self.logger.setLevel(logging.INFO)
+
+        self.ants = [Ant(i, self.task_graph, self.domain, self.tasks, self.par.alpha, self.par.beta) for i in range(self.par.n_ants)]
+
+        # --- Pheromone and Heuristic Information ---
+        # The pheromone and heuristic matrices are shared arrays among the ants
+
+        self.tau_start = mp.Array(c.c_double, self.domain.size)
+        self.tau_start_np = np.frombuffer(self.tau_start.get_obj())
+        #initialize the tau_start vector
+        self.tau_start_np[:] = 1 / self.domain.size
+
+        self.tau = mp.Array(c.c_double, (self.task_graph.n_nodes-1) * self.domain.size * self.domain.size)
+        self.tau_np = np.frombuffer(self.tau.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+        #initialize the tau tensor
+        self.tau_np[:] = 1 / (self.task_graph.n_nodes * self.domain.size * self.domain.size)
+
+        self.eta = mp.Array(c.c_double, (self.task_graph.n_nodes-1) * self.domain.size * self.domain.size)
+        self.eta_np = np.frombuffer(self.eta.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+        #initialize the eta tensor
+        self.eta_np[:] = 1 / (self.task_graph.n_nodes * self.domain.size * self.domain.size)
+
+    
+    def run(self, once_every = 10, show_traces = False):
+        """
+        Run the algorithm
+        """
+
+        def single_iteration(i, once_every, rho_step = 0):
+            all_paths = self.generate_colony_paths()
+            self.update_pheromones(all_paths)
+            self.update_heuristics()
+            shortest_path = min(all_paths, key=lambda x: x[2])
+            moving_average = np.mean([path[2] for path in all_paths])
+            if once_every is not None and i%once_every == 0:
+                print("Iteration #", i, ", chosen path is:", shortest_path)
+                print("Moving average for the path lenght is:", moving_average)
+            
+            self.evaporate_pheromones(rho_step)
+            return shortest_path
+
+
+        shortest_path = None
+        all_time_shortest_path = (np.inf, "placeholder", np.inf)
+
+        if self.par.rho_start is not None and self.par.rho_end is not None:
+            self.rho = self.par.rho_start
+            rho_step = (self.par.rho_end - self.par.rho_start) / self.par.n_iterations
+        else:
+            self.rho = self.par.rho
+            rho_step = 0
+
+        if show_traces:
+            all_time_shortest_path = self.run_and_show_traces(single_iteration, once_every = once_every, n_iterations = self.par.n_iterations, rho_step = rho_step)
+        else:
+            for i in range(self.par.n_iterations):
+                shortest_path = single_iteration(i, once_every, rho_step)
+                if shortest_path[2] < all_time_shortest_path[2]:
+                    all_time_shortest_path = shortest_path 
+
+        return all_time_shortest_path
+
+    @staticmethod
+    def init(tau_start_, tau_, eta_, tau_shape, eta_shape, **kwargs):
+        global vardict
+        vardict["tau_start"] = tau_start_
+        vardict["tau"] = tau_
+        vardict["eta"] = eta_
+        vardict["tau.size"] = tau_shape
+        vardict["eta.size"] = eta_shape
+
+    def generate_colony_paths(self):
+        # generate the colony of ants (parallel workers)
+        
+        
+        with closing(mp.Pool(processes = self.par.n_ants, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
+            # generate the paths
+            colony_paths = pool.map(Ant.walk, self.ants)
+        pool.join()
+
+        return colony_paths
+    
+    def evaporate_pheromones(self, step):
+        if self.par.rho is not None:
+            self.par.rho += step
+        else:
+            raise ValueError("The evaporation rate is not set")
+        self.tau_np = (1 - self.rho) * self.tau_np
+
+
+    def update_pheromones(self, colony_paths):
+        if self.par.n_best is None:
+            self.par.n_best = len(colony_paths)
+        sorted_paths = sorted(colony_paths, key = lambda x : x[2])
+        best_paths = sorted_paths[:self.par.n_best]
+        
+        # update the pheromones in parallel
+        with closing(mp.Pool(processes = len(best_paths), initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
+            pool.apply_async(Ant.update_pheromones, best_paths)
+        pool.join()
+
+    def update_heuristics(self): 
+        # introduce stochasticity in the heuristic matrix
+        self.eta_np = np.random.rand(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+
+
+"""
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- GA -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+The following python classes for the optimization using  a Genetic Algorithm
+will be primarly be a wrapper for the pyGAD library.
+"""
+
+import pygad
+from utils.ga_utils import *
+
+@dataclass
+class GAParameters:
+    """
+    Dataclass representing the parameters of the optimization algorithm.
+
+    The parameters of the optimization algorithm:
+            - n_generations : int
+                The number of generations of the algorithm.
+            - n_parents_mating : int
+                The number of solutions to be selected as parents for the next generation
+            - sol_per_pop : int
+                The number of solutions in the population.
+            - parent_selection_type : str
+                The type of parent selection.
+            - num_genes:
+                The number of genes in the chromosome.
+            - init_range_low : float
+                The lower bound of the initial range of the solutions.
+            - init_range_high : float
+                The upper bound of the initial range of the solutions.
+            - keep_parents : int
+                The number of parents to keep in the next generation.
+            - gene_type : type = int
+                The type of the genes of the solutions.
+            - mutation_probability : float
+                The probability of mutation
+            - crossover_probability : float
+                The probability of crossover
+
+    """
+
+    n_generations : int = 100
+    n_parents_mating : int = 20
+    sol_per_pop : int = 20
+    parent_selection_type : str = "rws"
+    num_genes : int = None
+    init_range_low : float = None
+    init_range_high : float = None
+    keep_parents : int = 0
+    gene_type : type = int
+    mutation_probability : float = 0.2
+    crossover_probability : float = 0.8
+
+
+class GeneticAlgorithm(BaseOpt):
+
+    def __init__(self, optimization_parameters, domain, task_graph):
+        """
+        
+        Parameters:
+        -----------
+        optimization_parameters : ACOParameters
+            The parameters of the optimization algorithm.
+        domain : Grid
+            The domain of the optimization problem, the NoC grid.
+        task_graph : TaskGraph
+            The dependency graph of the tasks to be mapped onto the NoC grid.
+
+        """
+
+        super().__init__()
+        self.par = optimization_parameters
+
+        if self.par.num_genes is None:
+            # the default value for the number of genes is the number of tasks in the graph
+            self.par.num_genes = task_graph.n_nodes
+
+        if self.par.init_range_low is None:
+            # the default value for the lower bound of the initial range is 0
+            self.par.init_range_low = 0
+
+        if self.par.init_range_high is None:
+            # the default value for the upper bound of the initial range is the size of the domain
+            self.par.init_range_high = domain.size
+
+        # --- Domain and Task Graph ---
+        self.domain = domain
+        self.task_graph = task_graph
+
+        self.tasks = [task["id"] for task in self.task_graph.get_nodes() if task["id"] != "start"]
+
+        # --- Pool of Operatros ---
+        self.pool = OperatorPool(self)
+
+        # --- Initialize the GA object of pyGAD ---
+
+        self.ga_instance = pygad.GA(num_generations = self.par.n_generations,
+                                    num_parents_mating = self.par.n_parents_mating,
+                                    sol_per_pop = self.par.sol_per_pop,
+                                    num_genes = self.par.num_genes,
+                                    init_range_low = self.par.init_range_low,
+                                    init_range_high = self.par.init_range_high,
+                                    parent_selection_type = self.par.parent_selection_type,
+                                    keep_parents = self.par.keep_parents,
+                                    gene_type = self.par.gene_type,
+                                    fitness_func = self.fitness_func,
+                                    crossover_type = self.pool.get_cross_func,
+                                    mutation_type = self.pool.get_mut_func,
+                                    mutation_probability = self.par.mutation_probability,
+                                    crossover_probability = self.par.crossover_probability,
+                                    on_generation = self.pool.on_generation,
+        )
+
+    def fitness_func(self, ga_instance, solution, solution_idx):
+
+        # fitness function is computed using the NoC simulator:
+        # 1. we construct the mapping from the solution
+        mapping = {}
+        for task_idx, task in enumerate(self.tasks):
+            mapping[task] = int(solution[task_idx])
+
+        # 2. we apply the mapping to the task graph
+        mapper = ma.Mapper()
+        mapper.init(self.task_graph, self.domain)
+        mapper.set_mapping(mapping)
+        mapper.mapping_to_json(CONFIG_DUMP_DIR + "/dump_GA.json", file_to_append=ARCH_FILE)
+
+        # 3. we run the simulation
+        stub = ss.SimulatorStub()
+        result = stub.run_simulation(CONFIG_DUMP_DIR + "/dump_GA.json")
+    
+        return 1 / result
+    
+    def run(self):
+
+        self.ga_instance.run()
+
+        return self.ga_instance.best_solution()
+
+
+ 

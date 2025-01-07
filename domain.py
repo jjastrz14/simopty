@@ -15,7 +15,6 @@ The domain.py module contains the classes used to represent the domain (NoC sear
 import os
 from enum import Enum
 import numpy as np
-import matplotlib.pyplot as plt
 
 class Topology(Enum):
     MESH = "mesh"
@@ -190,34 +189,6 @@ class Grid:
         """
         return self.grid
     
-    def plot_grid_2D(self, file_path = None):
-        """
-        Plots the grid
-        
-        Parameters
-        ----------
-        file_path : str
-            The path of the file where the plot is to be saved.
-
-        Returns
-        -------
-        None
-        """
-        assert self.N == 2
-        fig, ax = plt.subplots()
-        box_size = 0.30
-        ax.set_aspect('equal')
-        for i in range(self.size):
-            ax.text(self.grid[i][0], self.grid[i][1], str(i), ha='center', va='center')
-            ax.plot(self.grid[i][0], self.grid[i][1], "s", markerfacecolor = 'lightblue', markeredgecolor = 'black', markersize = box_size*100, markeredgebox_size = 2)
-        plt.xlim(-box_size-0.5, self.K-0.5 + box_size)
-        plt.ylim(-box_size-0.5, self.K-0.5 + box_size)
-        plt.axis("off")
-        
-        if file_path is not None:
-            file_path = os.path.join(os.path.dirname(__file__), file_path)
-            plt.savefig(file_path)
-        plt.show()
         
         
         

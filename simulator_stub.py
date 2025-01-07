@@ -28,11 +28,8 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 
 # print python version
-print(sys.version)
 PATH_TO_SIMULATOR = os.path.join("/Users/edoardocabiati/Desktop/Cose_brutte_PoliMI/_tesi/restart", "lib")
-print(PATH_TO_SIMULATOR)
 sys.path.append(PATH_TO_SIMULATOR)
-#type: ignore
 import nocsim
 
 class SimulatorStub:
