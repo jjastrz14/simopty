@@ -19,18 +19,24 @@ import os
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
+import math
+import tensorflow as tf
+import tensorflow.keras as keras
+import keras.layers as layers
+from utils.partitioner_utils import build_partitions
+from utils.plotting_utils import plot_partitions
 
 
 class TaskGraph:
 
-    NODE_INFO = "Node ID: {0}\nType: {1}\nLayer ID: {2}\nComputing Time Required: {3}\nDependencies: {4}"
+    NODE_INFO = "Node ID: {0}\nType: {1}\nLayer ID: {2}\n Data Size : {3}\nComputing Time Required: {4}\nDependencies: {5}"
     EDGE_INFO = "Edge ID: {0}\nType: {1}\nData Size: {2}\nProcessing Time Required: {3}\nDependencies: {4}"
 
 
-    def __init__(self):
+    def __init__(self, source = 0, drain = 27):
         self.graph = nx.DiGraph()
-        self.SOURCE_POINT = 0
-        self.DRAIN_POINT = 8
+        self.SOURCE_POINT = source
+        self.DRAIN_POINT = drain
         # Starting and ending nodes to group starting and ending dependencies
         self.graph.add_node("start", node = self.SOURCE_POINT, type = "START", layer = -1, color = 'lightgreen')
         self.graph.add_node("end", node = self.DRAIN_POINT, type = "END", layer = 999999, color = 'indianred')
@@ -143,7 +149,9 @@ class TaskGraph:
 
         return self.nodes_mapping, self.edges_mapping
 
-    def add_task_fully_qualified(self, id, type, layer_id, ct_required, dep, color = "lightblue"):
+        
+
+    def add_task_fully_qualified(self, id, type, layer_id, size, ct_required, dep, color = "lightblue"):
         """
         Adds a task (node) to the graph. Differently from the add_task method, this method allows to 
         specify all the parameters of the task that will be used during the simulation as a dictionary,
@@ -171,7 +179,7 @@ class TaskGraph:
             id = self.id
             self.id += 1
         
-        elem = {"id": id, "type": type, "layer_id": layer_id, "ct_required": ct_required, "dep": dep}
+        elem = {"id": id, "type": type, "layer_id": layer_id, "size": size, "ct_required": ct_required, "dep": dep}
         self.graph.add_node(id, layer = layer_id, color = color)
         self.nodes[id] = elem
 
@@ -207,7 +215,51 @@ class TaskGraph:
         elem = {"id": id, "size": size, "dep": dep,"type": type, "cl" : cl, "pt_required": pt_required }
         self.graph.add_edge(task_id1, task_id2, id = id)
         self.edges[id] = elem
-    
+
+
+    def trim_graph(self):
+        """
+        The function to trim the graph from superfluous nodes: 
+        - pairs of nodes that share deependencies only between each other are merged
+        """ 
+
+        for node1 in self.nodes.values():
+            if len(node1["dep"]) == 1:
+                node1_id = node1["id"]
+                node2_id = node1["dep"][0]
+                node2 = self.nodes[node2_id]
+                if len(self.nodes[node2_id]["dep"]) == 1 and self.nodes[node2_id]["dep"][0] == node1_id:
+                    # save the in edges of the first node and the out edges of the second node
+                    in_edges = [(edge, self.graph.get_edge_data(edge, node1_id)["id"]) for edge in self.graph.in_edges(node1_id)]
+                    out_edges = [(edge, self.graph.get_edge_data(node2_id, edge)["id"]) for edge in self.graph.out_edges(node2_id)]
+
+                    # remove edges and nodes, substitute the nodes with a new one
+                    # having as index the one of the first node, layer id of the first node,
+                    # dep of the first node, ct_required and size of the sum of the two nodes
+                    # and type of the first node
+                    self.graph.remove_edge(node1_id, node2_id)
+                    edge_id = self.get_edge_id(node1_id, node2_id)
+                    self.edges.pop(edge_id)
+                    self.graph.remove_node(node1_id)
+                    self.nodes.pop(node1_id)
+                    self.graph.remove_node(node2_id)
+                    self.nodes.pop(node2_id)
+                    new_node = {"id": node1_id, "type": node1["type"], "layer_id": node1["layer_id"], "size": node1["size"] + node2["size"], "ct_required": node1["ct_required"] + node2["ct_required"], "dep": node1["dep"]}
+                    self.graph.add_node(node1_id, layer = node1["layer_id"], color = 'lightblue')
+                    self.nodes[node1_id] = new_node
+
+                    # stitch together the dependencies of the two nodes: the tasks depending on the second node
+                    # now depends on the first node
+                    for node in self.nodes.values():
+                        if node["id"] != node1_id and node["id"] != node2_id:
+                            node["dep"].remove(node2_id)
+                            node["dep"].append(node1_id)
+                    
+                    # reconstruct the edges for the graph
+                    for edge in in_edges:
+                        self.graph.add_edge(edge[0][0], node1_id, id = edge[1])
+                    for edge in out_edges:
+                        self.graph.add_edge(node1_id, edge[0][1], id = self.get_edge_id(node1_id, edge[1]))
 
     def json_to_graph(self, structure):
         """
@@ -331,7 +383,7 @@ class TaskGraph:
                     if verbose:
                         print("\t\t\t Appending node: ", node["id"])
                         print("====================================")
-                        print(self.NODE_INFO.format(node["id"], node["type"], node["layer_id"], node["ct_required"], node["dep"]))
+                        print(self.NODE_INFO.format(node["id"], node["type"], node["layer_id"], node["size"], node["ct_required"], node["dep"]))
                         if self.nodes_mapping:
                             print("Mapping info: ")
                             print("node: ", self.nodes_mapping[node["id"]])
@@ -339,6 +391,7 @@ class TaskGraph:
                     satisfied_dependencies.append(node["id"])
                     nodes.remove(node)
                     break
+
         assert len(nodes) == 0 and len(edges) == 0
         return structure
     
@@ -389,7 +442,7 @@ class TaskGraph:
 
         if verbose:
             print("====================================")
-            print(self.NODE_INFO.format(node["id"], node["type"], node["layer_id"], node["ct_required"], node["dep"]))
+            print(self.NODE_INFO.format(node["id"], node["type"], node["layer_id"],node["size"], node["ct_required"], node["dep"]))
             print("====================================")
 
         return node
@@ -422,6 +475,27 @@ class TaskGraph:
         return None
     
 
+    def get_edge_id(self, src, dst):
+        """
+        Checks if an edge exists between two nodes. 
+        If so, returns the id of the edge.
+
+        Parameters
+        ----------
+        src : int
+            The source node.
+        dst : int
+            The destination node.
+        
+        Returns
+        -------
+        bool
+            the id of the edge if it exists, False otherwise.
+        """
+
+        return self.graph.get_edge_data(src, dst)["id"] if self.graph.has_edge(src, dst) else False
+    
+
     def get_nodes(self, verbose = False):
         """
         Returns the list of nodes.
@@ -442,7 +516,7 @@ class TaskGraph:
             print("------------------------------------")
             for node in self.nodes.values():
                 print("====================================")
-                print(self.NODE_INFO.format(node["id"], node["type"], node["layer_id"], node["ct_required"], node["dep"]))
+                print(self.NODE_INFO.format(node["id"], node["type"], node["layer_id"], node["size"], node["ct_required"], node["dep"]))
                 print("====================================")
 
 
@@ -473,6 +547,83 @@ class TaskGraph:
 
 
         return list(self.edges.values())
-    
 
 
+def model_to_graph(model, verbose = False):
+        """
+        A function to create the depencency graph of the model that will be used for the simulation on the NoC.
+
+        Args:
+        - model : the model for which to create the dependency graph
+
+        Returns:
+        - a dependency graph of the model
+        """
+
+        dep_graph = TaskGraph()
+        parts, deps = build_partitions(model)
+
+        if verbose:
+            print("Plotting the partitions and dependencies of the model...")
+            plot_partitions(parts, deps)
+            print("Done!")
+
+        task_id = 0
+        dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
+        layer_id = 0
+        scaling_factor = 100
+
+        # assign task ids to the partitions
+        for layer, partitions in parts.items():
+            for partition in partitions:
+                if isinstance(partition.layer, layers.InputLayer):
+                    # task_id += 1
+                    continue
+                partition.task_id = task_id
+                partition.layer_id = layer_id
+
+                # Define computing time and task size
+                computing_time = int(partition.FLOPs//scaling_factor)
+                computing_time = 1 if computing_time == 0 else computing_time
+                task_size = int(partition.tot_size)
+                task_size = 1 if task_size == 0 else task_size
+
+                if task_size > 0 and computing_time > 0:
+                    dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id, size = task_size, ct_required= computing_time, dep = [])
+                    task_id += 1
+            layer_id += 1
+
+        for key, value in deps.items():
+            partitions1 = parts[key[0]]
+            partitions2 = parts[key[1]]
+            for dep, weight in value.items(): 
+                print(dep, weight)
+                partition1_match = (partition for partition in partitions1 if partition.id == dep[0])
+                partition2_match = (partition for partition in partitions2 if partition.id == dep[1])
+                partition1 = next(partition1_match)
+                partition2 = next(partition2_match)
+            
+                first_node ="start" if isinstance(partition1.layer, layers.InputLayer) else partition1.task_id
+                second_node = partition2.task_id
+
+                # Define communication type and size
+                comm_type = "WRITE" if isinstance(partition1.layer, layers.InputLayer) else "WRITE_REQ"
+                comm_size = int(weight//scaling_factor) 
+                if comm_size == 0:
+                    comm_size = 0 if weight == 0 else 1
+                processing_time =int(0.5 * comm_size)
+
+                if comm_size > 0:
+                    dep_graph.add_dependency_fully_qualified(first_node, second_node , id = dep_id, type = comm_type , size = comm_size, pt_required= processing_time , cl = 0, dep= [-1] if isinstance(partition1.layer, layers.InputLayer) else [partition1.task_id])
+                    # fetch the second partition from the graph and add the dependency of the communication
+                    second_task = dep_graph.add_task_dep(second_node, dep_id)
+                    dep_id += 1
+
+        # Finally, connect the last layer partitions to the "end" node
+        for partition in parts[model.layers[-1].name]:
+            results = int(np.prod(partition.out_bounds)) // scaling_factor
+            results = 1 if results == 0 else results
+            dep_graph.add_dependency_fully_qualified(partition.task_id, "end", id = dep_id, type = "WRITE", size = results, pt_required = processing_time, cl = 0, dep = [partition.task_id])
+            dep_id += 1
+
+        return dep_graph

@@ -17,6 +17,7 @@ import os, sys
 import logging
 import enum
 import numpy as np
+from numpy.random import seed
 import simulator_stub as ss
 import mapper as ma
 import matplotlib.pyplot as plt
@@ -30,7 +31,8 @@ from utils.plotting_utils import plot_mapping_gif
 import ctypes as c
 from contextlib import closing
 import multiprocessing as mp
-from utils.aco_utils import Ant, vardict
+from utils.aco_utils import Ant, vardict, walk_batch, update_pheromones_batch
+from utils.partitioner_utils import PE
 
 
 class OptimizerType(enum.Enum):
@@ -219,6 +221,16 @@ class AntColony(BaseOpt):
         def single_iteration(i, once_every, rho_step = 0):
             all_paths = self.generate_colony_paths()
             self.update_pheromones(all_paths)
+            # print(self.tau)
+            # plot a heatmap of the pheromonesa at dlevel 0 and save it
+            # fig, ax = plt.subplots()
+            # cmap = plt.get_cmap("magma")
+            # slice = self.tau[0]
+            # vmax = np.max(slice)
+            # ax.imshow(slice, cmap = cmap, vmax = vmax)
+            # plt.show()
+            # plt.close()
+
             self.update_heuristics()
             shortest_path = min(all_paths, key=lambda x: x[1])
             moving_average = np.mean([path[1] for path in all_paths])
@@ -251,10 +263,14 @@ class AntColony(BaseOpt):
         return all_time_shortest_path
 
 
-    def pick_move(self, d_level, current):
+    def pick_move(self, d_level, current, resources, added_space, prev_path):
         """
         Pick the next move of the ant, given the pheromone and heuristic matrices.
         """
+
+        # compute a mask to filter out the resources that are already used
+        mask = np.array([0 if pe.mem_used + added_space > pe.mem_size else 1 for pe in resources])
+
         if d_level == 0:
             outbound_pheromones = self.tau_start
             outbound_heuristics = np.ones(self.domain.size)
@@ -262,21 +278,31 @@ class AntColony(BaseOpt):
             outbound_pheromones = self.tau[d_level-1,current,:]
             outbound_heuristics = self.eta[d_level-2, current, :]
 
-        row = (outbound_pheromones ** self.par.alpha) * (outbound_heuristics ** self.par.beta)
+        row = (outbound_pheromones ** self.par.alpha) * (outbound_heuristics ** self.par.beta) * mask
         norm_row = (row / row.sum()).flatten()
 
-        if norm_row is np.NaN:
+        # if there is a NaN in the row, raise an error
+        if np.isnan(norm_row).any():
+            # print the row value that caused the error
+            print("The row is:", row)
             raise ValueError("The row is NaN")
+        
         return np.random.choice(range(self.domain.size), 1, p = norm_row)[0]
 
 
     def generate_ant_path(self, verbose = False):
         # No need to specify the start node, all the ants start from the "start" node
         path = []
+        # A list of the available resources for each PE
+        resources = [PE() for _ in range(self.domain.size)]
         prev = -1
         for d_level, task_id in enumerate(self.tasks):
             current = prev
-            move = self.pick_move(d_level, current) if d_level != self.task_graph.n_nodes else np.inf
+            added_space = self.task_graph.get_node(task_id)["size"] if task_id != "start" and task_id != "end" else 0
+            move = self.pick_move(d_level, current, resources, added_space, path) if d_level != self.task_graph.n_nodes else np.inf
+            # udpate the resources
+            if task_id != "start" and task_id != "end" and move != np.inf:
+                resources[move].mem_used += added_space
             path.append((task_id, current, move))
             prev = move
 
@@ -299,7 +325,7 @@ class AntColony(BaseOpt):
         mapper.mapping_to_json(CONFIG_DUMP_DIR + "/dump.json", file_to_append=ARCH_FILE)
         
         if verbose:
-            plot_mapping_gif(mapper)
+            plot_mapping_gif(mapper, "solution_mapping.gif")
 
         stub = ss.SimulatorStub()
         result = stub.run_simulation(CONFIG_DUMP_DIR + "/dump.json")
@@ -318,6 +344,7 @@ class AntColony(BaseOpt):
             self.par.rho += step
         else:
             raise ValueError("The evaporation rate is not set")
+        self.tau_start = (1 - self.rho) * self.tau_start
         self.tau = (1 - self.rho) * self.tau
 
     def update_pheromones(self, colony_paths):
@@ -327,7 +354,7 @@ class AntColony(BaseOpt):
         best_paths = sorted_paths[:self.par.n_best]
         for path, path_length in best_paths:
             for d_level, path_node in enumerate(path):
-                if path_node[1] == -1: # starting decisione level
+                if path_node[1] == -1: # starting decision level
                     self.tau_start[path_node[2]] += 1 / path_length
                 elif d_level-1 < self.tau.shape[0]:
                     self.tau[d_level-1, path_node[1], path_node[2]] += 1 / path_length
@@ -344,7 +371,7 @@ class ParallelAntColony(AntColony):
     optimizerType : ClassVar[Union[str, OptimizerType]] = OptimizerType.ACO
 
 
-    def __init__(self, optimization_parameters, domain, task_graph):
+    def __init__(self, number_of_processes, optimization_parameters, domain, task_graph):
         """
         
         Parameters:
@@ -360,6 +387,9 @@ class ParallelAntColony(AntColony):
 
         super().__init__(optimization_parameters, domain, task_graph)
 
+        # The number of executors that will be used to run the algorithm
+        self.n_processes = number_of_processes
+
         # self.logger = mp.log_to_stderr()
         # self.logger.setLevel(logging.INFO)
 
@@ -369,19 +399,24 @@ class ParallelAntColony(AntColony):
         # The pheromone and heuristic matrices are shared arrays among the ants
 
         self.tau_start = mp.Array(c.c_double, self.domain.size)
-        self.tau_start_np = np.frombuffer(self.tau_start.get_obj())
+        tau_start_np = np.frombuffer(self.tau_start.get_obj())
         #initialize the tau_start vector
-        self.tau_start_np[:] = 1 / self.domain.size
+        tau_start_np[:] = 1 / self.domain.size
 
         self.tau = mp.Array(c.c_double, (self.task_graph.n_nodes-1) * self.domain.size * self.domain.size)
-        self.tau_np = np.frombuffer(self.tau.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+        tau_np = np.frombuffer(self.tau.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
         #initialize the tau tensor
-        self.tau_np[:] = 1 / (self.task_graph.n_nodes * self.domain.size * self.domain.size)
+        tau_np[:] = 1 / (self.domain.size * self.domain.size * self.task_graph.n_nodes)
 
         self.eta = mp.Array(c.c_double, (self.task_graph.n_nodes-1) * self.domain.size * self.domain.size)
-        self.eta_np = np.frombuffer(self.eta.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+        eta_np = np.frombuffer(self.eta.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
         #initialize the eta tensor
-        self.eta_np[:] = 1 / (self.task_graph.n_nodes * self.domain.size * self.domain.size)
+        eta_np[:] = 1
+
+        self.statistics = {}
+        self.statistics["mdn"] = []
+        self.statistics["std"] = []
+        self.statistics["best"] = []
 
     
     def run(self, once_every = 10, show_traces = False):
@@ -392,14 +427,29 @@ class ParallelAntColony(AntColony):
         def single_iteration(i, once_every, rho_step = 0):
             all_paths = self.generate_colony_paths()
             self.update_pheromones(all_paths)
+
+            # # plot a heatmap of the pheromonesa at dlevel 0
+            # fig, ax = plt.subplots()
+            # cmap = plt.get_cmap("magma")
+            # slice = np.frombuffer(self.tau.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)[0]
+            # vmax = np.max(slice)
+            # print("Vmax:", vmax)
+            # ax.imshow(slice, cmap = cmap, vmax = vmax)
+            # plt.show()
+            # plt.close()
+
             self.update_heuristics()
             shortest_path = min(all_paths, key=lambda x: x[2])
             moving_average = np.mean([path[2] for path in all_paths])
+            moving_std = np.std([path[2] for path in all_paths])
             if once_every is not None and i%once_every == 0:
                 print("Iteration #", i, ", chosen path is:", shortest_path)
                 print("Moving average for the path lenght is:", moving_average)
             
             self.evaporate_pheromones(rho_step)
+            self.statistics["mdn"].append(moving_average)
+            self.statistics["std"].append(moving_std)
+            self.statistics["best"].append(shortest_path)
             return shortest_path
 
 
@@ -420,6 +470,8 @@ class ParallelAntColony(AntColony):
                 shortest_path = single_iteration(i, once_every, rho_step)
                 if shortest_path[2] < all_time_shortest_path[2]:
                     all_time_shortest_path = shortest_path 
+            # Finalize the simulation: save the data
+            np.save("statistics.npy", self.statistics)
 
         return all_time_shortest_path
 
@@ -431,16 +483,21 @@ class ParallelAntColony(AntColony):
         vardict["eta"] = eta_
         vardict["tau.size"] = tau_shape
         vardict["eta.size"] = eta_shape
+        
 
     def generate_colony_paths(self):
         # generate the colony of ants (parallel workers)
         
-        
-        with closing(mp.Pool(processes = self.par.n_ants, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
-            # generate the paths
-            colony_paths = pool.map(Ant.walk, self.ants)
+        with closing(mp.Pool(processes = self.n_processes, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
+            # generate the paths in parallel: each process is assigned to a subsed of the ants
+            # evenly distributed
+            intervals = [(i, i + self.par.n_ants//self.n_processes + min(i, self.par.n_ants % self.n_processes)) for i in range(0, self.par.n_ants, self.par.n_ants//self.n_processes)]
+            # print(intervals)
+            colony_paths = pool.map_async(walk_batch,[self.ants[start:end] for start, end in intervals])
+            colony_paths = colony_paths.get()
         pool.join()
-
+        # unpack the batches of paths
+        colony_paths = [path for batch in colony_paths for path in batch]
         return colony_paths
     
     def evaporate_pheromones(self, step):
@@ -448,7 +505,10 @@ class ParallelAntColony(AntColony):
             self.par.rho += step
         else:
             raise ValueError("The evaporation rate is not set")
-        self.tau_np = (1 - self.rho) * self.tau_np
+        tau_start = np.frombuffer(self.tau_start.get_obj())
+        tau_start[:] = (1 - self.rho) * tau_start
+        tau = np.frombuffer(self.tau.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+        tau[:] = (1 - self.rho) * tau
 
 
     def update_pheromones(self, colony_paths):
@@ -458,14 +518,15 @@ class ParallelAntColony(AntColony):
         best_paths = sorted_paths[:self.par.n_best]
         
         # update the pheromones in parallel
-        with closing(mp.Pool(processes = len(best_paths), initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
-            pool.apply_async(Ant.update_pheromones, best_paths)
+        with closing(mp.Pool(processes = self.n_processes, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
+            intervals = [(i, i + self.par.n_best//self.n_processes + min(i, self.par.n_best % self.n_processes)) for i in range(0, self.par.n_best, self.par.n_best//self.n_processes)]
+            pool.map(update_pheromones_batch, [best_paths[start:end] for start, end in intervals])
         pool.join()
 
     def update_heuristics(self): 
         # introduce stochasticity in the heuristic matrix
-        self.eta_np = np.random.rand(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
-
+        eta = np.frombuffer(self.eta.get_obj()).reshape(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+        eta[:] = np.random.rand(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
 
 """
 =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- GA -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -582,18 +643,18 @@ class GeneticAlgorithm(BaseOpt):
     def fitness_func(self, ga_instance, solution, solution_idx):
 
         # fitness function is computed using the NoC simulator:
-        # 1. we construct the mapping from the solution
+        # 1. construct the mapping from the solution
         mapping = {}
         for task_idx, task in enumerate(self.tasks):
             mapping[task] = int(solution[task_idx])
 
-        # 2. we apply the mapping to the task graph
+        # 2. apply the mapping to the task graph
         mapper = ma.Mapper()
         mapper.init(self.task_graph, self.domain)
         mapper.set_mapping(mapping)
         mapper.mapping_to_json(CONFIG_DUMP_DIR + "/dump_GA.json", file_to_append=ARCH_FILE)
 
-        # 3. we run the simulation
+        # 3. run the simulation
         stub = ss.SimulatorStub()
         result = stub.run_simulation(CONFIG_DUMP_DIR + "/dump_GA.json")
     

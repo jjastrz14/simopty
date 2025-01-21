@@ -273,10 +273,9 @@ Using these parameters, we can define a custom partitioning strategy. In particu
 """
 
 from dataclasses import dataclass
-from typing import List, Union
+from typing import List, Union, Tuple, Set, Dict
 from copy import deepcopy
 import string
-import pydot
 import matplotlib.pyplot as plt
 import graph as dg
 import math
@@ -290,11 +289,11 @@ class PE:
     # The space used to store in memory a single number (input/weights/output) (in bytes)
     single_num: int = 1
     # The size of the PE's memory (in bytes)
-    mem_size: int = 512000
+    mem_size: int = 256000
     # The amount of memory used by the PE (in bytes)
     mem_used: int = 0
 
-    def __init__(self, mem_size: int = None):
+    def __init__(self, mem_size: int = 512000):
         self.mem_size = mem_size
         self.mem_used = 0
 
@@ -340,10 +339,12 @@ class PartitionInfo:
         self.id = 'x-x-x-x'
         self.task_id = None
         self.layer_id = None
-        for key, value in kwargs.items():
-            setattr(self, key, value)
         self.MACs = 0
         self.FLOPs = 0
+        self.tot_size = 0
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+        
 
     def set_id(self, partition_type, partition_local_id, previous_id = None):
         if previous_id is not None:
@@ -378,6 +379,19 @@ class PartitionInfo:
     out_ch: Union[None, List[tuple]] = None
     # weights shape for the partition
     weights_shape: Union[None, List[tuple]] = None
+
+    # additional data: used for merging nodes
+    additional_data: Union[None, Dict] = None
+
+    # mergeable flags
+    mergeable: bool = False
+    merger: bool = False
+
+    # out-merging partition id
+    out_merging: Union[None, str] = None
+
+   
+    
 
 
 
@@ -750,7 +764,7 @@ def _build_partitions_from_layer(layer, spat = 0, out_ch = 1, in_ch = 1):
     partitions = _split_output_dims(layer, out_ch, partitions)
     partitions = _split_input_dims(layer, in_ch, partitions)
     for p in partitions:
-        p.MACs, p.FLOPs = analyze_partition(p)
+        p.MACs, p.FLOPs, p.tot_size = analyze_partition(p)
     return partitions
 
 def _adaptive_parsel(layer):
@@ -815,11 +829,11 @@ def _adaptive_parsel(layer):
         '''
         pass
 
-        
-
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.Flatten, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
         return 0,1,1
+    elif layer.name == "max_pooling2d":
+        return 2,1,1
     elif isinstance(layer, layers.Add):
         return 1,1,1
     elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
@@ -842,9 +856,9 @@ def _adaptive_parsel(layer):
         return 1,1,1
     else:
         raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))
-        
 
-def _build_spatial_deps(partitions, index1, index2, deps = None):
+
+def _build_spatial_deps(partitions_layer1 : List[PartitionInfo], partitions_layer2: List[PartitionInfo], deps: Dict = None):
     """
     The function builds the dependencies between the partitions of two layers based on the spatial partitioning technique:
     in particular, it takes as input the partitions list, searches for the partitions of the two - already partitioned - layers 
@@ -853,15 +867,15 @@ def _build_spatial_deps(partitions, index1, index2, deps = None):
     and correct. This must be ensured at the moment of the creation of the dependency list among the layers
 
     Args:
-    - partitions : an object containing the partitions of the layers
-    - index1: the index of the first layer in the model
-    - index2: the index of the second layer in the model
+    - partitions_layer1 : the partitions of the first layer
+    - partitions_layer2 : the partitions of the second layer
+    - deps : the dependencies between the partitions of the two layers
 
     Returns:
     - a dict of dependencies between the partitions of the two layers
     """
-    partitions_1 = partitions[index1.name]
-    partitions_2 = partitions[index2.name]
+    partitions_1 = partitions_layer1
+    partitions_2 = partitions_layer2
 
     # we then build the dependencies between the partitions: to do so, we must look at the spatial input and ouput dimensions of the partitions
     # of the two layers and check if they 'overlap'
@@ -874,40 +888,41 @@ def _build_spatial_deps(partitions, index1, index2, deps = None):
                 # Conv layers
                 if p1.out_bounds[0][0] <= p2.in_bounds[1][0] and p1.out_bounds[1][0] >= p2.in_bounds[0][0] and p1.out_bounds[0][1] <= p2.in_bounds[1][1] and p1.out_bounds[1][1] >= p2.in_bounds[0][1]:
                         overlap = (min(p1.out_bounds[1][0], p2.in_bounds[1][0]) - max(p1.out_bounds[0][0], p2.in_bounds[0][0])) * (min(p1.out_bounds[1][1], p2.in_bounds[1][1]) - max(p1.out_bounds[0][1], p2.in_bounds[0][1]))
-                        if deps.get((p1.id, p2.id)) is not None:
-                            deps[(p1.id, p2.id)] += overlap
-                        else:
-                            deps[(p1.id, p2.id)] = overlap
+                        if overlap >0:
+                            if deps.get((p1.id, p2.id)) is not None:
+                                deps[(p1.id, p2.id)] += overlap
+                            else:
+                                deps[(p1.id, p2.id)] = overlap
             else:
                 # Dense layers
                 # OSS: for the dense layers, depependencies are always present between the partitions of a layer and the partitions of the next layer,
                 # in partitcular, the communication size is equal to the number of output neurons of the partition of the first layer
                 overlap = p1.out_bounds[1][0] - p1.out_bounds[0][0]
-                if deps.get((p1.id, p2.id)) is not None:
-                    deps[(p1.id, p2.id)] += overlap
-                else:
-                    deps[(p1.id, p2.id)] = overlap
+                if overlap >0:
+                    if deps.get((p1.id, p2.id)) is not None:
+                        deps[(p1.id, p2.id)] += overlap
+                    else:
+                        deps[(p1.id, p2.id)] = overlap
             
 
     return deps
      
 
-def _build_outin_deps(partitions, index1, index2, deps = None):
+def _build_outin_deps(partitions_layer1: List[PartitionInfo], partitions_layer2: List[PartitionInfo], deps: Dict = None):
     """
     A function to build the dependencies between the partitions of two layers based on the input/output channel partitioning technique.
 
     Args:
-    - partitions : a obj containing the partitions of the layers
-    - index1: the index of the first layer in the model
-    - index2: the index of the second layer in the model
+    - partitions_layer1 : the partitions of the first layer
+    - partitions_layer2 : the partitions of the second layer
     - deps : a dictionary of dependencies between the partitions of the layers
 
     Returns:
     - a dict of dependencies between the partitions of the two layers
     """
 
-    partitions_1 = partitions[index1.name]
-    partitions_2 = partitions[index2.name]
+    partitions_1 = partitions_layer1
+    partitions_2 = partitions_layer2
 
     # we then build the dependencies between the partitions of the two layers
     deps = {} if deps is None else deps
@@ -921,18 +936,19 @@ def _build_outin_deps(partitions, index1, index2, deps = None):
                 # creating a dependency between the partitions. Furthermore, also the number of input channels assigned to the partition
                 # is not relevant in terms of communication weight, since berfore performing the computation, we can simply reduce the partial
                 # results corresponding to different input channels, thus sending a number of bytes corresponding to a single channel (2D) tensor.
-                if p1.out_ch[0] <= p2.in_ch[0] and p1.out_ch[1] >= p2.in_ch[0]:
-                    overlap = p1.out_ch[1] - p2.in_ch[0]
-                    if deps.get((p1.id, p2.id)) is not None:
-                        deps[(p1.id, p2.id)] *= overlap
-                    else:
-                        deps[(p1.id, p2.id)] = overlap
+                if p1.out_ch[0] <= p2.in_ch[1] and p1.out_ch[1] >= p2.in_ch[0]:
+                    overlap = min(p1.out_ch[1], p2.in_ch[1]) - max(p1.out_ch[0], p2.in_ch[0])
+                    if overlap >0:
+                        if deps.get((p1.id, p2.id)) is not None:
+                            deps[(p1.id, p2.id)] *= overlap
+                        # else:
+                        #     deps[(p1.id, p2.id)] = overlap
                 
 
     return deps
 
 
-def _build_layer_deps(model: keras.Model):
+def _build_layer_deps(model: keras.Model)->Set:
     """"
     A function to infer the dependencies between the layers of a keras model: it looks at the model's dependency graph and builds
     a list of dependencies between the layers of the model. Those are then used to build the dependencies between the partitions of the layers.
@@ -941,22 +957,47 @@ def _build_layer_deps(model: keras.Model):
     - model : the keras model for which to infer the dependencies
 
     Returns:
-    - a list of dependencies between the layers of the model
+    - a set of dependencies between the layers of the model
     """
-    dependencies = []
+
+    dependencies = set()
+    dep_id = 0
+
+    def add_to_deps(node_in, layer_out, deps, dep_id):
+        if isinstance(node_in.inbound_layers, list):
+            for in_layer in node_in.inbound_layers:
+                # check the type of the inbound layer
+                # if the layer is a Flatten type, we skip it
+                if isinstance(in_layer, layers.Flatten):
+                    continue
+
+                deps.add((dep_id, in_layer, layer_out))
+        else:
+            in_layer = node_in.inbound_layers
+            if isinstance(in_layer, layers.Flatten):
+                return
+            deps.add(( dep_id, in_layer, layer_out))
+
+
     for layer in model.layers:
-        for node in layer._inbound_nodes:
-            if isinstance(node.inbound_layers, list):
-                for inbound_layer in node.inbound_layers:
-                    dependencies.append((inbound_layer, layer))
-            else:
-                inbound_layer = node.inbound_layers
-                dependencies.append((inbound_layer, layer))
+        # check if the layer is layer.Flatten type: if so, we create dependencies between its
+        # input and output nodes
+        if isinstance(layer, layers.Flatten):
+            for node_in in layer._inbound_nodes:
+                for node_out in layer._outbound_nodes:
+                    out_layer = node_out.outbound_layer # just one output layer
+                    add_to_deps(node_in, out_layer, dependencies, dep_id)
+                    dep_id += 1
+        else:
+            for node in layer._inbound_nodes:
+                add_to_deps(node, layer, dependencies, dep_id)
+                dep_id += 1
+             
 
     return dependencies
 
 
-def _build_partitions_deps(partitions, layer_to_layer_list):
+def _build_partitions_deps(partitions_layer1 : List[PartitionInfo], partitions_layer2 : List[PartitionInfo], layer_to_layer_set : Set, deps: Dict = None)-> Dict:
     """
     Given the dictionary of partitions and the list of dependent layers, the function builds the dependencies between the partitions of the layers
     included in the layer_to_layer_list.
@@ -969,18 +1010,208 @@ def _build_partitions_deps(partitions, layer_to_layer_list):
     - a dictionary of dependencies between the partitions of the layers
     """
 
-    deps = {}
-    for dep in layer_to_layer_list:
-        layer1 = dep[0]
-        layer2 = dep[1]
+    layer_name1 = partitions_layer1[0].id.split('-')[0]
+    layer_name2 = partitions_layer2[0].id.split('-')[0]
 
-        # build the dependencies between the partitions of the two layers
-        deps[(layer1.name, layer2.name)] = _build_spatial_deps(partitions, layer1, layer2)
-        deps[(layer1.name, layer2.name)] = _build_outin_deps(partitions, layer1, layer2, deps[(layer1.name, layer2.name)])
+    if deps is None:
+        deps = {}
+
+    # check if the layers are dependent, we do not care about the layer_dep_id
+    for _, layer1, layer2 in layer_to_layer_set:
+
+        if layer1.name == layer_name1 and layer2.name == layer_name2:
+            # build the dependencies between the partitions of the two layers
+            deps[(layer_name1, layer_name2)] = _build_spatial_deps(partitions_layer1, partitions_layer2)
+            deps[(layer_name1, layer_name2)] = _build_outin_deps(partitions_layer1, partitions_layer2, deps[(layer_name1, layer_name2)])
 
     return deps
 
-def build_partitions(model, verbose = False):
+def _group_partitions(partitions_layer1 : List[PartitionInfo], partitions_layer2 : List[PartitionInfo], layer_to_layer_set: Set, deps: Dict)-> None:
+    """
+    The function groups together partitions that are interdependent only with each other:
+    this reduces the number of partitions, aiding the mapping algorithms to convergence.
+    The two partitions are substituted by a single partition whose total size and MACs/FLOPs
+    are the sum of the two partitions.
+    
+    Args:
+    - partition1 : the first partition to group
+    - partition2 : the second partition to group
+
+    Returns:
+    - a PartitionInfo object representing the grouped partitions
+
+    """
+    name_layer1 = partitions_layer1[0].id.split('-')[0]
+    partitions1_map_to_int = {p.id:i for i, p in enumerate(partitions_layer1)}
+    partitions2_map_to_int = {p.id:i for i, p in enumerate(partitions_layer2)}
+    name_layer2 = partitions_layer2[0].id.split('-')[0]
+
+
+    def _mark_partitions(part1: PartitionInfo, part2: PartitionInfo):
+        """
+        Handy function used to mark a partition as mergeable with another one
+        """
+        # if the first partition is already marked as mergeable, we mark the second partition as mergeable too,
+        # and set the out_merging field of the first partition to the second partition
+        if part1.out_merging is not None:
+            assert part2.out_merging is None and part2.mergeable is False and part1.merger is False and part1.mergeable is True
+            part1.out_merging = part2.id
+            part2.mergeable = True
+        else:
+            assert part1.mergeable is False and part2.mergeable is False and part2.merger is False and part1.merger is False
+            part1.out_merging = part2.id
+            part1.merger = True
+            part2.mergeable = True
+
+    # build the dependencies between the partitions of the two layers
+    temp_deps = _build_partitions_deps(partitions_layer1, partitions_layer2, layer_to_layer_set)
+    # create the connectivity matrix for clearer dependencies visualization
+    connectivity_matrix = np.zeros((len(partitions_layer1), len(partitions_layer2)))
+    
+    for p1,p2 in temp_deps[(name_layer1, name_layer2)]:
+        connectivity_matrix[partitions1_map_to_int[p1], partitions2_map_to_int[p2]] += 1 if temp_deps[(name_layer1, name_layer2)][p1,p2] > 0 else 0
+
+    # for each couple of partitions, check if they are interdependent
+    # only between themselves
+    for i, p1 in enumerate(partitions_layer1):
+        for j, p2 in enumerate(partitions_layer2):
+            # check that the sum over the row and the column are both equal to 1
+            if connectivity_matrix[i,:].sum() == 1 and connectivity_matrix[:,j].sum() == 1 and connectivity_matrix[i,j] == 1:
+                # mark the partitions
+                _ = _mark_partitions(p1, p2)
+
+    # build the dependencies between the partitions of the two layers
+    deps[(name_layer1, name_layer2)] = temp_deps[(name_layer1, name_layer2)]
+
+
+def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], partitions_deps: Dict[Tuple[str, str], int])-> Tuple[Dict, Dict]:
+    """
+    The function goes over the partitions, looks for any grouping markings and effectively groups the partitions by creating
+    a unique partition
+    """
+
+    def _split_in_subgroups(partitions: List[PartitionInfo], partitions_deps: Dict):
+        """
+        A handy function to split the group of partitions in subgroups if the memory constraints are not satisfied
+        """
+
+        
+
+
+
+    def _merge_partitions(partition_to_merge: List[PartitionInfo], partitions_deps: Dict):
+        """
+        Handy function to group together partitions
+        """
+        new_id = partition_to_merge[0].id
+        new_layer = partition_to_merge[0].layer
+        new_in_bounds = partition_to_merge[0].in_bounds
+        new_out_bounds = partition_to_merge[-1].out_bounds
+        new_in_ch = partition_to_merge[0].in_ch
+        new_out_ch = partition_to_merge[-1].out_ch
+        new_weights_shape = partition_to_merge[0].weights_shape + partition_to_merge[-1].weights_shape
+        # compute the total size of the partition
+        new_MACs = sum([p.MACs for p in partition_to_merge])
+        new_FLOPs = sum([p.FLOPs for p in partition_to_merge])
+        # the total size is computed as the sum of the sizes of the weight for the partitions
+        # and the sum of the maximum size of the input and output tensors
+        new_tot_size = 0
+        max_input_size = 0
+        max_output_size = 0
+        additional_data = {}
+        for p in partition_to_merge:
+            additional_data[p.id] = p
+            for w in p.weights_shape:
+                new_tot_size += np.prod(w)
+            input_size = np.prod([p.in_bounds[1][i] - p.in_bounds[0][i] for i in range(len(p.in_bounds[0]))] if len(p.in_bounds[0]) > 1 else [p.in_bounds[1][0] - p.in_bounds[0][0]])
+            output_size = np.prod([p.out_bounds[1][i] - p.out_bounds[0][i] for i in range(len(p.out_bounds[0]))] if len(p.out_bounds[0]) > 1 else [p.out_bounds[1][0] - p.out_bounds[0][0]])
+            max_input_size = max(max_input_size, input_size)
+            max_output_size = max(max_output_size, output_size)
+        new_tot_size += max_input_size + max_output_size
+        
+        new_partition = PartitionInfo(layer = new_layer,
+                                    id = new_id,
+                                    in_bounds = new_in_bounds,
+                                    out_bounds = new_out_bounds,
+                                    in_ch = new_in_ch,
+                                    out_ch = new_out_ch,
+                                    weights_shape = new_weights_shape,
+                                    FLOPs = new_FLOPs,
+                                    MACs = new_MACs,
+                                    tot_size = new_tot_size,
+                                    additional_data = additional_data)
+        
+        # delete the dependencies between the partitions that are going to be merged
+        for p_id, p in enumerate(partition_to_merge):
+            if p_id == 0:
+                continue
+            prev_p = partition_to_merge[p_id-1]
+            p_layer_name = p.id.split('-')[0]
+            prev_p_layer_name = prev_p.id.split('-')[0]
+            # delete the related dependecies
+            del partitions_deps[(prev_p_layer_name, p_layer_name)][(prev_p.id, p.id)]
+            if len(partitions_deps[(prev_p_layer_name, p_layer_name)]) == 0:
+                del partitions_deps[(prev_p_layer_name, p_layer_name)]
+
+        # find the element in the partitions_deps that has as first element in the key the id of the last partition in the partition_to_merge list
+        stitching_deps = {}
+        new_key = None
+        for key in partitions_deps.keys():
+            if key[0] == partition_to_merge[-1].id.split('-')[0]:
+                stitching_deps = deepcopy(partitions_deps[key])
+                pre_key = key
+                new_key = (new_id.split('-')[0], key[1])
+                break
+
+        # stitch back together the dependencies
+        if new_key is not None:
+            partitions_deps[new_key] = {} if partitions_deps.get(new_key) is None else partitions_deps[new_key]
+            for key, value in stitching_deps.items():
+                if key[0] == partition_to_merge[-1].id:
+                    partitions_deps[new_key][(new_id, key[1])] = value
+                    del partitions_deps[pre_key][key]
+            if len(partitions_deps[pre_key]) == 0:
+                del partitions_deps[pre_key]
+
+        return new_partition
+
+    # go over the partitions and, if one of them is marked as mergeable, go down the chain of partitions to create a single partition
+    
+    for layer_name, partitions_list in partitions.items():
+        new_partitions = []
+        for p in partitions_list:
+            to_group = []
+            if p.mergeable is False and p.merger is False:
+                new_partitions.append(p)
+            elif p.mergeable is True:
+                assert p.merger is False
+                # delete the partitions that are marked as mergeable
+                # (SIMPLY DON'T APPEND TO THE NEW PARTITIONS)
+                continue
+            elif p.merger is True:
+                # until no more mergiable partitions are found,
+                # go down the chain of partitions
+                assert p.out_merging is not None
+                to_group.append(p)
+                next_p = p
+                while next_p.out_merging is not None:
+                    next_layer_name = next_p.out_merging.split('-')[0]
+                    next_partitions = partitions[next_layer_name]
+                    # find the partition in the list that has the same id as the out_merging field of the partition
+                    next_p = None
+                    for part in next_partitions:
+                        if part.id == to_group[-1].out_merging:
+                            to_group.append(part)
+                            next_p = part
+                            break   
+                # create the new partition from the partitions in to_group
+                new_partition = _merge_partitions(to_group, partitions_deps)
+                new_partitions.append(new_partition)
+        partitions[layer_name] = new_partitions
+    
+    return partitions, partitions_deps
+
+def build_partitions(model: keras.Model, grouping: bool = True,verbose : bool = False)-> Tuple[dict, dict]:
     """
     The function creates the partitions for each layer in the model, based on the partitioning strategies defined above.
 
@@ -989,9 +1220,11 @@ def build_partitions(model, verbose = False):
 
     Returns:
     - a dict of partitions: the key is the layer name and the value is a list of PartitionInfo objects, each representing a partition of the layer
+    - a dict of dependencies between the partitions of the layers
     """
 
     partitions = {}
+    partitions_deps = {}
     pe = PE()
     layer_deps = _build_layer_deps(model)
 
@@ -1003,114 +1236,30 @@ def build_partitions(model, verbose = False):
         print("Layer {} partitioned succesfully with partition parameters: {} ".format(input_layer.name, (spat, out_ch, in_ch)))
 
     # then proceed with the other layers
-    for prev_layer, layer in layer_deps:
+    for _, prev_layer, layer in sorted(layer_deps, key = lambda x: x[0]):
+        # if the layer is a Flatten type, we can direclty skip it
+        if isinstance(layer, layers.Flatten):
+            if verbose:
+                print("Skipping layer {}".format(layer.name))
+            continue
         spat, out_ch, in_ch = _adaptive_parsel(layer)
         partitions[layer.name] = _build_partitions_from_layer(layer, spat, out_ch, in_ch)
+        
+        # group the partitions that are interdependent
+        partitions1 = partitions[prev_layer.name]
+        partitions2 = partitions[layer.name]
+        # dependencies are delt directly in _group_partitions
+        _group_partitions(partitions1, partitions2, layer_deps, partitions_deps)
+        
+
         if verbose:
             print("Layer {} partitioned succesfully with partition parameters: {} ".format(layer.name, (spat, out_ch, in_ch)))
 
-    # build the dependencies between the partitions
-    partitions_deps = _build_partitions_deps(partitions, layer_deps)
+    if grouping:
+        partitions, partitions_deps = _build_straight_through_deps(partitions=partitions, partitions_deps=partitions_deps)
 
     return partitions, partitions_deps
 
-def plot_partitions(partitions, partitions_deps):
-    """
-    A function to plot the partitions of a layer using pydot package.
-
-    Args:
-    - partitions : a dictionary of partitions of the layers
-
-    Returns:
-    - a plot representing the task graph that will be deployed on the NoC
-    """
-    task_id = 0
-
-    def format_node(partition: PartitionInfo):
-    
-        # we divide the node horizontally in 3 parts: the first part contains the partition id,
-        # the second contains the input, output bounds, the number of input and output channels and the weights shape
-        # the third part contains the MACs and FLOPs
-        struct = f"{partition.id}\ntask_id:{partition.task_id} | layer_type:{type(partition.layer).__name__}\ninput bounds:{partition.in_bounds}\noutput bounds:{partition.out_bounds}\ninput channels:{partition.in_ch}\noutput channels:{partition.out_ch}\nweights shape:{partition.weights_shape} | MACs:{partition.MACs}\nFLOPs:{partition.FLOPs}"
-        return struct
-
-    # get the type of keras layer
-
-
-    graph = pydot.Dot(graph_type='digraph')
-    for layer, partition_list in partitions.items():
-        for partition in partition_list:
-            partition.task_id = task_id
-            task_id += 1
-            node = pydot.Node(partition.id,label = format_node(partition), shape = "Mrecord")
-            graph.add_node(node)
-
-    for key, value in partitions_deps.items():
-        for dep, weight in value.items():
-            edge = pydot.Edge(dep[0], dep[1], label = weight)
-            graph.add_edge(edge)
-
-    graph.write_png('task_graph.png')
-
-
-def model_to_task_graph(model):
-    """
-    A function to create the depencency graph of the model that will be used for the simulation on the NoC.
-
-    Args:
-    - model : the model for which to create the dependency graph
-
-    Returns:
-    - a dependency graph of the model
-    """
-
-    dep_graph = dg.TaskGraph()
-    parts, deps = build_partitions(model)
-
-    task_id = 0
-    dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
-    layer_id = 0
-    scaling_factor = 100
-    processing_time = 5
-
-    # assign task ids to the partitions
-    for layer, partitions in parts.items():
-        for partition in partitions:
-            if isinstance(partition.layer, layers.InputLayer):
-                continue
-            partition.task_id = task_id
-            partition.layer_id = layer_id
-
-            dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id,  ct_required=partition.FLOPs//scaling_factor, dep = [])
-
-            task_id += 1
-        layer_id += 1
-
-    for key, value in deps.items():
-        partitions1 = parts[key[0]]
-        partitions2 = parts[key[1]]
-        for dep, weight in value.items(): 
-            partition1_match = (partition for partition in partitions1 if partition.id == dep[0])
-            partition2_match = (partition for partition in partitions2 if partition.id == dep[1])
-            partition1 = next(partition1_match)
-            partition2 = next(partition2_match)
-        
-            first_node ="start" if isinstance(partition1.layer, layers.InputLayer) else partition1.task_id
-            print(first_node)
-            second_node = partition2.task_id
-            comm_type = "WRITE" if isinstance(partition1.layer, layers.InputLayer) else "WRITE_REQ"
-            dep_graph.add_dependency_fully_qualified(first_node, second_node , id = dep_id, type = comm_type , size = weight//scaling_factor, pt_required= processing_time , cl = 0, dep= [-1] if isinstance(partition1.layer, layers.InputLayer) else [partition1.task_id])
-
-            # fetch the second partition from the graph and add the dependency of the communication
-            second_task = dep_graph.add_task_dep(second_node, dep_id)
-            dep_id += 1
-
-    # Finally, connect the last layer partitions to the "end" node
-    for partition in parts[model.layers[-1].name]:
-        dep_graph.add_dependency_fully_qualified(partition.task_id, "end", id = dep_id, type = "WRITE", size = 0, pt_required = processing_time, cl = 0, dep = [partition.task_id])
-        dep_id += 1
-
-    return dep_graph
 
 """
 * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = *
@@ -1134,15 +1283,18 @@ def analyze_partition(partition):
 
     FLOPs = 0
     MACs = 0
+    tot_par_size = 0
 
     # Get the layer and the input and output shapes of the partition
     layer = partition.layer
     inputs_bounds = partition.in_bounds
     inputs_shape =[inputs_bounds[1][i] - inputs_bounds[0][i] for i in range(len(inputs_bounds[0]))] if len(inputs_bounds[0]) > 1 else [inputs_bounds[1][0] - inputs_bounds[0][0]]
+    tot_par_size += np.prod(inputs_shape)
     # prepend a 0 to the input shape to make it compatible to the hooks
     inputs_shape = [0] + inputs_shape
     outputs_bounds = partition.out_bounds
     outputs_shape = [outputs_bounds[1][i] - outputs_bounds[0][i] for i in range(len(outputs_bounds[0]))] if len(outputs_bounds[0]) > 1 else [outputs_bounds[1][0] - outputs_bounds[0][0]]
+    tot_par_size += np.prod(outputs_shape)
     # prepend a 0 to the output shape also
     outputs_shape = [0] + outputs_shape
     # Compute the FLOPs (and MACs) using the hook
@@ -1155,7 +1307,10 @@ def analyze_partition(partition):
             MACs += MACs_act
             FLOPs += FLOPs_act
 
-    return MACs, FLOPs
+    for weight in partition.weights_shape:
+        tot_par_size += np.prod(weight)
+
+    return MACs, FLOPs, tot_par_size
 
 def _analyze_layer(layer,activation = None):
     '''
@@ -1218,7 +1373,6 @@ def analyze_ops(model: keras.Model, incl_info = False):
         FLOPs, MACs = _analyze_layer(layer)
         total_MACs += MACs
         total_FLOPs += FLOPs
-
 
         if incl_info:
             # Get the number of input parameters

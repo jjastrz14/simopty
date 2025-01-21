@@ -22,7 +22,8 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from domain import Grid
 from mapper import Mapper
-from graph import TaskGraph
+import pydot
+from utils.partitioner_utils import PartitionInfo
 
 
 """
@@ -31,7 +32,7 @@ from graph import TaskGraph
  = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
 """
 
-def plot_graph(graph: TaskGraph, file_path = None):
+def plot_graph(graph, file_path = None):
         """
         Plots the nodes and edges in a top-down fashion.
 
@@ -156,51 +157,119 @@ def plot_mapping_gif(mapper: Mapper, file_path = None):
     defined in the depency graph (parallel tasks will appear in the same frame).
     """
     assert mapper.grid.N == 2, "The plot_mapping_gif method is only available for 2D grids."
-    box_size = 0.50
+    box_size = 1.0
+    scale = 2
     dim_offset = [mapper.grid.K ** i for i in range(mapper.grid.N)]
-    cmap = plt.cm.get_cmap('Pastel1', len(mapper.dep_graph.nodes.keys()))
+    layers = set([mapper.dep_graph.nodes[task]["layer_id"] for task in mapper.dep_graph.nodes.keys()])
+    cmap = plt.cm.get_cmap('tab20c', len(layers))
 
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
-    plt.xlim(-box_size-0.5, mapper.grid.K-0.5 + box_size)
-    plt.ylim(-box_size-0.5, mapper.grid.K-0.5 + box_size)
+    plt.xlim(-box_size-0.5, scale*mapper.grid.K-0.5 + box_size)
+    plt.ylim(-box_size-0.5, scale*mapper.grid.K-0.5 + box_size)
     plt.axis("off")
+    plt.tight_layout()
 
-    layers = set([mapper.dep_graph.nodes[task]["layer_id"] for task in mapper.dep_graph.nodes.keys()])
 
+    global patches, texts
     patches = []
     texts = []
 
     for i in range(mapper.grid.K):
             for j in range(mapper.grid.K):
-                ax.add_patch(plt.Rectangle((i-box_size/2, j-box_size/2), box_size, box_size, facecolor = 'white', edgecolor = 'black', linewidth = 2, zorder = 0))
-                ax.text(i, j - box_size*3/5, f"{i, j}", ha = 'center', va = 'top')
+                patches.append(plt.Rectangle((scale*i-box_size/2, scale*j-box_size/2), box_size, box_size, facecolor = 'white', edgecolor = 'black', linewidth = 2, zorder = 0))
+                texts.append(plt.text(scale*i, scale*j - box_size*3/5, f"{i, j}", ha = 'center', va = 'top', fontdict={'fontsize': 7}))
 
-    def init(patches = patches, texts = texts):
-        patches = []
-        texts = []
-        
-        return patches + texts
-
-    def update(frame, patches = patches, texts = texts):
-        #clear the previous layer boxes
+    def init():
+        global patches, texts
+        for patch in patches[mapper.grid.K ** 2:]:
+            patch.remove()
+        for text in texts[mapper.grid.K ** 2:]:
+            text.set_text("")
         patches = patches[:mapper.grid.K ** 2]
         texts = texts[:mapper.grid.K ** 2]
 
+        for patch in patches:
+            ax.add_patch(patch)
+        for text in texts:
+            ax.add_artist(text)
+        return patches + texts
+
+    def update(frame):
+        global patches, texts
+        #clear the previous frame
+        for patch in patches[mapper.grid.K ** 2:]:
+            patch.remove()
+        for text in texts[mapper.grid.K ** 2:]:
+            text.set_text("")
+
+        patches = patches[:mapper.grid.K ** 2]
+        texts = texts[:mapper.grid.K ** 2]
+
+        
         # get the tasks of the current layer
-        current_layer = [task for task in mapper.dep_graph.nodes.keys() if mapper.dep_graph.nodes[task]["layer_id"] == frame]
-        for i in current_layer:
-            mapped_node = mapper.mapping[i]
+        current_layer = [(task,mapper.dep_graph.nodes[task]["layer_id"]) for task in mapper.dep_graph.nodes.keys() if mapper.dep_graph.nodes[task]["layer_id"] == frame]
+        
+        for n,(task,layer_id) in enumerate(current_layer):
+            mapped_node = mapper.mapping[task]
             color = cmap(frame)
             mapped_coords = [mapped_node // dim_offset[h] % mapper.grid.K for h in range(mapper.grid.N)]
-            patches.append(ax.add_patch(plt.Rectangle((mapped_coords[0]-box_size/2, mapped_coords[1]-box_size/2), box_size, box_size, facecolor = color, edgecolor = 'black', linewidth = 2, zorder = 1)))
-            texts.append(ax.text(mapped_coords[0], mapped_coords[1], str(i), ha = 'center', va = 'center', color = 'black', fontweight = 'bold'))
+            patches.append(plt.Rectangle((scale*mapped_coords[0]-box_size/2, scale*mapped_coords[1]-box_size/2), box_size, box_size, facecolor = color, edgecolor = 'black', linewidth = 2, zorder = 1))
+            ax.add_patch(patches[-1])
+            texts.append(plt.text(scale*mapped_coords[0], scale*mapped_coords[1], "L{}-{}".format(layer_id, n), ha = 'center', va = 'center', color = 'black', fontweight = 'bold', fontdict={'fontsize': 6}))
+            ax.add_artist(texts[-1])
         
         return patches + texts
         
     
-    ani = animation.FuncAnimation(fig, update, frames = layers, init_func = init, interval = 2000, blit = True, repeat = True)
+    ani = animation.FuncAnimation(fig, update, frames = layers, init_func = init, interval = 2000, blit = False, repeat = True)
     if file_path is not None:
         file_path = os.path.join(os.path.dirname(__file__), file_path)
-        ani.save(file_path, writer = 'imagemagick', fps = 1)
+        ani.save(file_path, writer = 'magick', fps = 1)
     plt.show()
+
+def plot_partitions(partitions, partitions_deps, namefile = 'task_graph.png'):
+    """
+    A function to plot the partitions of a layer using pydot package.
+
+    Args:
+    - partitions : a dictionary of partitions of the layers
+
+    Returns:
+    - a plot representing the task graph that will be deployed on the NoC
+    """
+    task_id = -1
+
+    def format_node(partition: PartitionInfo):
+    
+        # we divide the node horizontally in 3 parts: the first part contains the partition id,
+        # the second contains the input, output bounds, the number of input and output channels and the weights shape
+        # the third part contains the MACs and FLOPs
+        struct = f"{partition.id}\ntask_id:{partition.task_id} | layer_type:{type(partition.layer).__name__}\ninput bounds:{partition.in_bounds}\noutput bounds:{partition.out_bounds}\ninput channels:{partition.in_ch}\noutput channels:{partition.out_ch}\nweights shape:{partition.weights_shape} | MACs:{partition.MACs}\nFLOPs:{partition.FLOPs}\ntot_size:{partition.tot_size}"
+        if partition.additional_data is not None:
+            struct = "{{" + struct
+            struct += "}| merged tasks: \n"
+            for keys in partition.additional_data.keys():
+                struct += f"{keys} \n"
+            struct += "}"
+        return struct
+
+    # get the type of keras layer
+
+
+    graph = pydot.Dot(graph_type='digraph')
+    for layer, partition_list in partitions.items():
+        for partition in partition_list:
+            partition.task_id = task_id
+            task_id += 1
+            if partition.FLOPs > 0:
+                node = pydot.Node(partition.id,label = format_node(partition), shape = "Mrecord")
+                graph.add_node(node)
+
+    for key, value in partitions_deps.items():
+        for dep, weight in value.items():
+            if weight > 0:
+                edge = pydot.Edge(dep[0], dep[1], label = weight)
+                graph.add_edge(edge)
+
+    graph.write_png(namefile)

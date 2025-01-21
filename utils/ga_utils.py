@@ -15,7 +15,7 @@ especially the operators used in the pool extraction process.
 
 
 import numpy as np
-import random
+from utils.partitioner_utils import PE
 
     
 """
@@ -394,7 +394,7 @@ class OperatorPool:
             n is the index for the current iteration
     """
 
-    def __init__(self, optimizer,  beta = 10, evol_stagnation = 150):
+    def __init__(self, optimizer, beta = 10, evol_stagnation = 150):
 
         self.mutation_pool = MUTATION_OPERATORS
         self.crossover_pool = CROSSOVER_OPERATORS
@@ -420,8 +420,7 @@ class OperatorPool:
         self.F2 = [0 for _ in range(self.num_operators)]
 
         self.cur_cross = CROSSOVER_OPERATORS[0] # used to keep track of the current crossover operator
-        self.cur_mut = MUTATION_OPERATORS[0] # used to keep track of the current mutation operator
-        
+        self.cur_mut = MUTATION_OPERATORS[0] # used to keep track of the current mutation operator 
 
     def add_operator(self, operator, operator_type):
         if operator_type == "crossover":
@@ -455,8 +454,6 @@ class OperatorPool:
             self.F1[i + len(self.crossover_pool)] = (max_pop_fit - max_pop_fit_prev) / max_pop_fit
             self.F2[i + len(self.crossover_pool)] = 1 / (cur_it - self.last_chosen[i + len(self.crossover_pool)])
             self.F[i + len(self.crossover_pool)] = self.F[i + len(self.crossover_pool)] + self.beta * np.exp(1 / (total_it + 1 - cur_it)) * self.F1[i + len(self.crossover_pool)] * self.F2[i + len(self.crossover_pool)] if self.F1[i + len(self.crossover_pool)] > 0 else self.F[i + len(self.crossover_pool)]
-        
-        
 
     def pick_operator(self, cur_it):
         
@@ -499,14 +496,45 @@ class OperatorPool:
         self.prev_pop_fit = pop_fit
     
     def get_cross_func(self, parents, offspring_size, ga_instance):
-        return crossover_selection(parents, offspring_size, ga_instance, self.cur_cross)
+        offspring = crossover_selection(parents, offspring_size, ga_instance, self.cur_cross)
+        # check if the offspring is valid
+        # if not, rerun the crossover operator until a valid offspring is obtained
+        for i in range(len(offspring)):
+            while not self.check_mem_constraints(offspring[i]):
+                offspring[i] = crossover_selection(parents, (1, offspring_size[1]), ga_instance, self.cur_cross)[0]
+
+        return offspring
         
     def get_mut_func(self, offspring, ga_instance):
         if self.cur_mut == "adaptive":
             ga_instance.mutation_probability = (0.35, 0.17)
         else:
             ga_instance.mutation_probability = self.optimizer.par.mutation_probability
+
+        # check if the offspring is valid
+        # if not, rerun the mutation operator until a valid offspring is obtained
+        for i in range(len(offspring)):
+            while not self.check_mem_constraints(offspring[i]):
+                offspring[i] = mutation_selection(offspring[i], ga_instance, self.cur_mut)
+
+
         return mutation_selection(offspring, ga_instance, self.cur_mut)
+    
+    def check_mem_constraints(self, offspring):
+        # the integer assigned to a certain position in the chromosome represents the PE of the NoC chosen
+        # to map the corresponding task. The PE has a certain amount of memory, and the task has a certain
+        # memory requirement. If total memory used by the tasks mapped on a certain PE is greater than the
+        # memory available, the solution is invalid.
+        # The function returns true is the offspring is valid, false otherwise.
+
+        resources = [PE() for _ in range(self.optimizer.domain.size)]
+
+        for gene in range(offspring.shape[0]):
+            if resources[offspring[gene]].mem_used + self.optimizer.task_graph.get_node(self.optimizer.tasks[gene])["size"] > resources[offspring[gene]].mem_size:
+                return False
+            resources[offspring[gene]].mem_used += self.optimizer.task_graph.get_node(self.optimizer.tasks[gene])["size"]
+
+        return True
 
     def get_pool(self):
         return (self.crossover_pool, self.mutation_pool)
