@@ -91,8 +91,8 @@ class Ant:
         
 
         stub = ss.SimulatorStub()
-        result = stub.run_simulation(CONFIG_DUMP_DIR + "/dump{}.json".format(self.id))
-        return result
+        result, logger = stub.run_simulation(CONFIG_DUMP_DIR + "/dump{}.json".format(self.id))
+        return result, logger
         
     def walk(self):
         """
@@ -112,7 +112,8 @@ class Ant:
             path.append((task_id, current, move))
             prev = move
         
-        self.current_path = (self.id, path, self.path_lenght(self.graph, self.domain, path))
+        path_lenght = self.path_lenght(self.graph, self.domain, path)
+        self.current_path = (self.id, path, path_lenght[0])
         return self.current_path
     
     @staticmethod

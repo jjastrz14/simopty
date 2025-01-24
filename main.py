@@ -92,11 +92,11 @@ if __name__ == "__main__":
     # mapper.init(dep_graph, grid)
 
 
-    # Ant's job: decide the mapping
+    # # Ant's job: decide the mapping
     # mapping = {3 : 0, 4 : 1, 5 : 2, 11 : 3, 12 : 4, 15 : 7}
-    # mapping = {3 : 0, 4 : 1, 5 : 2, 11 : 6, 12 : 4, 15 : 7}
-    # mapping = {3 : 0, 4 : 3, 5 : 2, 11 : 6, 12 : 4, 15 : 7}
-    # mapping = {3 : 3, 4 : 3, 5 : 2, 11 : 6, 12 : 4, 15 : 7}
+    # # mapping = {3 : 0, 4 : 1, 5 : 2, 11 : 6, 12 : 4, 15 : 7}
+    # # mapping = {3 : 0, 4 : 3, 5 : 2, 11 : 6, 12 : 4, 15 : 7}
+    # # mapping = {3 : 3, 4 : 3, 5 : 2, 11 : 6, 12 : 4, 15 : 7}
 
 
     # mapper.set_mapping(mapping)
@@ -105,14 +105,20 @@ if __name__ == "__main__":
     # mapper.mapping_to_json(CONFIG_DUMP_DIR + "/dump1.json", file_to_append=ARCH_FILE)
 
     # Create a SimulatorStub object
-    # stub = ss.SimulatorStub(EX_DIR)
+    stub = ss.SimulatorStub(EX_DIR)
 
     # Run the simulation
-    # processors = list(range(6))
-    # config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
-    # results = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
-    # results = stub.run_simulation(CONFIG_DUMP_DIR + "/dump1.json", verbose = True)
-    # print(results)
+    processors = list(range(6))
+    config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
+    results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
+    # results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
+    print(results)
+    print(logger)
+    
+    print(logger[0].print_events())
+    print(logger[0].events[0])
+    print(logger[0].events[2].info.history[0])
+    # print(logger.events[0].get_info())
 
     # Define a Optimization object
 
@@ -147,42 +153,42 @@ if __name__ == "__main__":
     # opt.ga_instance.plot_fitness()
     # print(shortest[0], 1/shortest[1])
 
-    model = test_model((28, 28, 1))
+    # model = test_model((28, 28, 1))
     # model = load_model("ResNet50")
     # model = load_model("MobileNet")
     # model = load_model("MobileNetV2")
 
     # model.summary()
-    # plot_model(model, to_file="model.png", show_shapes=True)
+    # plot_model(model, to_file="visual/model.png", show_shapes=True)
     # analyze_ops(model, True)
 
     # print(split_spatial_dims(model.layers[2], 2))
 
     
-    task_graph = model_to_graph(model, verbose=True)
-    plot_graph(task_graph)
+    # task_graph = model_to_graph(model, verbose=True)
+    # plot_graph(task_graph)
 
-    grid = dm.Grid()
-    grid.init(6, 2, dm.Topology.TORUS)
+    # grid = dm.Grid()
+    # grid.init(6, 2, dm.Topology.TORUS)
 
-    params = op.ACOParameters(
-        n_ants = 100,
-        rho = 0.05,
-        n_best = 20,
-        n_iterations = 150,
-        alpha = 1.,
-        beta = 1.2,
-    )
-    n_procs = 4
-    # opt = op.ParallelAntColony(n_procs, params, grid, dep_graph)
-    opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
+    # params = op.ACOParameters(
+    #     n_ants = 100,
+    #     rho = 0.05,
+    #     n_best = 20,
+    #     n_iterations = 150,
+    #     alpha = 1.,
+    #     beta = 1.2,
+    # )
+    # n_procs = 4
+    # # opt = op.ParallelAntColony(n_procs, params, grid, dep_graph)
+    # opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
 
-    shortest = opt.run(once_every=1, show_traces= False)
-    print(shortest[1])
-    print(opt.path_length(shortest[1], verbose = True))
-    # Load the statistics and plot the results
-    stats = np.load("statistics.npy", allow_pickle=True).item()
-    print(stats)
+    # shortest = opt.run(once_every=1, show_traces= False)
+    # print(shortest[1])
+    # print(opt.path_length(shortest[1], verbose = True))
+    # # Load the statistics and plot the results
+    # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
+    # print(stats)
 
 
 

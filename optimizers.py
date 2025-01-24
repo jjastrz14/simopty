@@ -325,18 +325,19 @@ class AntColony(BaseOpt):
         mapper.mapping_to_json(CONFIG_DUMP_DIR + "/dump.json", file_to_append=ARCH_FILE)
         
         if verbose:
-            plot_mapping_gif(mapper, "solution_mapping.gif")
+            plot_mapping_gif(mapper, "../visual/solution_mapping.gif")
 
         stub = ss.SimulatorStub()
-        result = stub.run_simulation(CONFIG_DUMP_DIR + "/dump.json")
-        return result
+        result, logger = stub.run_simulation(CONFIG_DUMP_DIR + "/dump.json")
+        return result, logger
 
 
     def generate_colony_paths(self):
         colony_paths = []
         for _ in range(self.par.n_ants):
             ant_path = self.generate_ant_path()
-            colony_paths.append((ant_path, self.path_length(ant_path)))
+            path_length = self.path_length(ant_path)
+            colony_paths.append((ant_path, path_length[0]))
         return colony_paths
     
     def evaporate_pheromones(self, step):
@@ -656,7 +657,7 @@ class GeneticAlgorithm(BaseOpt):
 
         # 3. run the simulation
         stub = ss.SimulatorStub()
-        result = stub.run_simulation(CONFIG_DUMP_DIR + "/dump_GA.json")
+        result, _ = stub.run_simulation(CONFIG_DUMP_DIR + "/dump_GA.json")
     
         return 1 / result
     

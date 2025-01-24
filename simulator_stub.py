@@ -55,11 +55,11 @@ class SimulatorStub:
             print("Running simulation with configuration file: " + path_to_config_file)
         #os.system(self.path_to_executable + " " + path_to_config_file)
         start = time.time()
-        results = nocsim.simulate(path_to_config_file, "")
+        results, logger = nocsim.simulate(path_to_config_file, "")
         end = time.time()
         if verbose:
             print(f"Simulation completed in {end - start:.2f} seconds.")
-        return results
+        return results, logger
 
     def run_simulation_on_processor(self, path_to_config_file, processor, verbose=False):
         """
@@ -92,12 +92,12 @@ class SimulatorStub:
             p.join()
         start = time.time()
         # os.system(self.path_to_executable + " " + path_to_config_file)
-        results = nocsim.simulate(path_to_config_file, "")
+        results, logger = nocsim.simulate(path_to_config_file, "")
         end = time.time()
         if verbose:
             print(f"Simulation completed in {end - start:.2f} seconds.")
 
-        return results
+        return results, logger
 
     def run_simulations_in_parallel(self, config_files, processors, verbose=False):
         """
@@ -125,12 +125,16 @@ class SimulatorStub:
             futures = []
             for config_file, processor in zip(config_files, processors):
                 futures.append(executor.submit(self.run_simulation_on_processor, config_file, processor, False))
-            results = [future.result() for future in futures]  # Wait for all futures to complete
+            results_loggers = [future.result() for future in futures]  # Wait for all futures to complete
         end = time.time()
         if verbose:
             print(f"Simulations completed in {end - start:.2f} seconds.")
         
-        return results
+        # Separate results and loggers
+        results = [result for result, logger in results_loggers]
+        loggers = [logger for result, logger in results_loggers]
+        
+        return results, loggers
                 
 
 

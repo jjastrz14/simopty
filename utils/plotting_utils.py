@@ -228,7 +228,7 @@ def plot_mapping_gif(mapper: Mapper, file_path = None):
         ani.save(file_path, writer = 'magick', fps = 1)
     plt.show()
 
-def plot_partitions(partitions, partitions_deps, namefile = 'task_graph.png'):
+def plot_partitions(partitions, partitions_deps, namefile = 'visual/task_graph.png'):
     """
     A function to plot the partitions of a layer using pydot package.
 
@@ -273,3 +273,5 @@ def plot_partitions(partitions, partitions_deps, namefile = 'task_graph.png'):
                 graph.add_edge(edge)
 
     graph.write_png(namefile)
+
+

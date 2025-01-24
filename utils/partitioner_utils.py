@@ -1094,9 +1094,7 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
         """
         A handy function to split the group of partitions in subgroups if the memory constraints are not satisfied
         """
-
-        
-
+        pass
 
 
     def _merge_partitions(partition_to_merge: List[PartitionInfo], partitions_deps: Dict):
