@@ -176,3 +176,7 @@ cython_debug/
 # dump directory
 config_files/dumps/
 config_files/runs/
+config_files/arch.json
+config_files/save_data
+
+

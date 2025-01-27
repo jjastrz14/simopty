@@ -9,8 +9,7 @@
             "routing_function" : "dim_order",
             "num_vcs" : 16,
             "user_defined_traffic" : 1,
-            "watch_out" : "-",
-            "logger" : 1
+            "watch_out" : "-"
         },
         
     "workload" : [
@@ -21,7 +20,7 @@
             "dst" : 1,
             "size" : 3,
             "dep" : [-1],
-            "type" : "WRITE",
+            "type" : "WRITE_REQ",
             "cl" : 0,
             "pt_required" : 5
         },

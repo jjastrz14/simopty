@@ -111,7 +111,7 @@ if __name__ == "__main__":
     processors = list(range(6))
     config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
     results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
-    # results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
+    #results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
     print(results)
     print(logger)
     
