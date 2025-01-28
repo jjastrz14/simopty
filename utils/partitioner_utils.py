@@ -1107,7 +1107,7 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
         new_out_bounds = partition_to_merge[-1].out_bounds
         new_in_ch = partition_to_merge[0].in_ch
         new_out_ch = partition_to_merge[-1].out_ch
-        new_weights_shape = partition_to_merge[0].weights_shape + partition_to_merge[-1].weights_shape
+        new_weights_shape = [w for p in partition_to_merge for w in p.weights_shape]
         # compute the total size of the partition
         new_MACs = sum([p.MACs for p in partition_to_merge])
         new_FLOPs = sum([p.FLOPs for p in partition_to_merge])

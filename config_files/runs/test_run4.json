@@ -10,7 +10,7 @@
             "num_vcs" : 16,
             "user_defined_traffic" : 1,
             "watch_out" : "-",
-            "logger" : 1
+            "logger": 1
         },
         
     "workload" : [
@@ -19,6 +19,8 @@
             "id" : 0,
             "layer_id": 0,
             "node" : 0,
+            "size" : 3,
+            "weight_size" : 1,
             "type" : "COMP_OP",
             "ct_required" : 30,
             "dep" : [-1]
@@ -27,6 +29,8 @@
             "id" : 1,
             "layer_id": 0,
             "node" : 1,
+            "size" : 4,
+            "weight_size" : 2,
             "type" : "COMP_OP",
             "ct_required" : 20,
             "dep" : [-1]
@@ -55,6 +59,8 @@
             "id" : 4,
             "layer_id": 1,
             "node" : 4,
+            "size" : 4,
+            "weight_size" : 2,
             "type" : "COMP_OP",
             "ct_required" : 10,
             "dep" : [2,3]

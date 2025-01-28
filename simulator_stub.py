@@ -90,6 +90,7 @@ class SimulatorStub:
             p = multiprocessing.Process(target=set_affinity)
             p.start()
             p.join()
+            
         start = time.time()
         # os.system(self.path_to_executable + " " + path_to_config_file)
         results, logger = nocsim.simulate(path_to_config_file, "")
