@@ -151,7 +151,7 @@ class TaskGraph:
 
         
 
-    def add_task_fully_qualified(self, id, type, layer_id, size, ct_required, dep, color = "lightblue"):
+    def add_task_fully_qualified(self, id, type, layer_id, size, weight_size, ct_required, dep, color = "lightblue"):
         """
         Adds a task (node) to the graph. Differently from the add_task method, this method allows to 
         specify all the parameters of the task that will be used during the simulation as a dictionary,
@@ -179,7 +179,7 @@ class TaskGraph:
             id = self.id
             self.id += 1
         
-        elem = {"id": id, "type": type, "layer_id": layer_id, "size": size, "ct_required": ct_required, "dep": dep}
+        elem = {"id": id, "type": type, "layer_id": layer_id, "size": size, "weight_size": weight_size, "ct_required": ct_required, "dep": dep}
         self.graph.add_node(id, layer = layer_id, color = color)
         self.nodes[id] = elem
 
@@ -587,9 +587,12 @@ def model_to_graph(model, verbose = False):
                 computing_time = 1 if computing_time == 0 else computing_time
                 task_size = int(partition.tot_size)
                 task_size = 1 if task_size == 0 else task_size
+                weight_size = 0
+                for weight in partition.weight_shape:
+                    weight_size += np.prod(weight)
 
                 if task_size > 0 and computing_time > 0:
-                    dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id, size = task_size, ct_required= computing_time, dep = [])
+                    dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id, size = task_size, weight_size= weight_size,ct_required= computing_time, dep = [])
                     task_id += 1
             layer_id += 1
 

@@ -9,7 +9,8 @@
             "routing_function" : "dim_order",
             "num_vcs" : 16,
             "user_defined_traffic" : 1,
-            "watch_out" : "-"
+            "watch_out" : "-",
+            "logger": 1
         },
 
     "workload":[
