@@ -27,6 +27,7 @@ from utils.partitioner_utils import *
 import tensorflow.keras as keras
 import tensorflow.keras.layers as layers
 from tensorflow.keras.utils import plot_model
+import nocsim
 
 def test_model(input_shape):
     
@@ -110,16 +111,41 @@ if __name__ == "__main__":
     # Run the simulation
     processors = list(range(6))
     config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
-    results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
-    #results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
+    #results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
+    
+    results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
     print(results)
     print(logger)
     
-    print(logger[0].print_events())
-    print(logger[0].events[0])
-    print(logger[0].events[2].info.history[0])
-    # print(logger.events[0].get_info())
+    print(logger.print_events())
+    
+    #print them all 
+    #print(logger[0].print_events())
+    #print the first event
+    #print(logger[0].events[3])
+    #print(logger[0].events[3].info)
+    #print(logger[0].events[3].info.id)
 
+    
+    #print(logger[0].events[3].info.history)
+    #print(logger[0].events[3].info.history[0])
+    #print(logger[0].events[3].info.history[1])
+    #print(logger[0].events[3].info.history[2])
+    print("\n")
+    for event in logger.events:
+        print(event)
+        print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+              f" Ttype: {event.ttype}, Info: {event.info}")
+    
+    print("-------------------")
+    info_0 = logger.get_event_info(0)
+    info_1 = logger.get_event_info(1)
+    info_2 = logger.get_event_info(2)
+    print(info_0)
+    print(info_1)
+    print(info_2)
+    print("-------------------")
+    
     # Define a Optimization object
 
     # params = op.ACOParameters(

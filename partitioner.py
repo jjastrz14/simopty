@@ -12,9 +12,6 @@ Under the supervision of: Politecnico di Milano
 The partitioner.py module contains the classes and functions needed to create a partition/task graph out of a 
 given DNN model. The chosen library for this purpose is TensorFlow.
 
-
-
-
 """
 
 import tensorflow as tf
