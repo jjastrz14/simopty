@@ -481,7 +481,7 @@ class NoCPlotter:
             
     ###############################################################################
 
-    def plot(self,logger, file_name = None, network_file = None):
+    def plot(self,logger, network_file = None, file_name = None):
         """
         Main Execution Point
         """

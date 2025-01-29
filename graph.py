@@ -588,8 +588,9 @@ def model_to_graph(model, verbose = False):
                 task_size = int(partition.tot_size)
                 task_size = 1 if task_size == 0 else task_size
                 weight_size = 0
-                for weight in partition.weight_shape:
+                for weight in partition.weights_shape:
                     weight_size += np.prod(weight)
+                weight_size = int(weight_size)
 
                 if task_size > 0 and computing_time > 0:
                     dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id, size = task_size, weight_size= weight_size,ct_required= computing_time, dep = [])
@@ -600,7 +601,6 @@ def model_to_graph(model, verbose = False):
             partitions1 = parts[key[0]]
             partitions2 = parts[key[1]]
             for dep, weight in value.items(): 
-                print(dep, weight)
                 partition1_match = (partition for partition in partitions1 if partition.id == dep[0])
                 partition2_match = (partition for partition in partitions2 if partition.id == dep[1])
                 partition1 = next(partition1_match)
