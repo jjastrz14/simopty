@@ -26,7 +26,7 @@ import json
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib.pyplot as plt
-PATH_TO_SIMULATOR = os.path.join("/Users/edoardocabiati/Desktop/Cose_brutte_PoliMI/_tesi/restart", "lib")
+PATH_TO_SIMULATOR = os.path.join("/home/jjastrzebski/Projects/restart", "lib")
 sys.path.append(PATH_TO_SIMULATOR)
 import nocsim
 
@@ -501,10 +501,100 @@ class NoCPlotter:
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
         self.gen_activity_animation(logger, file_name)
-        plt.show()
+        #plt.show()
+        plt.savefig("visual/animation.png", dpi=300, bbox_inches='tight')
     ###############################################################################
 
+
+class NoCTimelinePlotter(NoCPlotter):
+    """Subclass for 2D timeline visualization. Inherits all NoCPlotter methods."""
     
+    def __init__(self):
+        super().__init__()
+        self.fig2d = None  # Separate figure for 2D timeline
+        self.ax2d = None
+        self.node_events = {}  # Stores event data: {node: {"comp": [(start, duration)], "traf": [...]}}
+
+    def setup_timeline(self, logger):
+        """Initialize 2D timeline figure and preprocess events."""
+        self._preprocess_events(logger)
+        self.fig2d, self.ax2d = plt.subplots(figsize=(10, 6))
+        self.ax2d.set_xlabel("Cycle")
+        self.ax2d.set_ylabel("Node")
+        self.ax2d.grid(False)
+        self.max_cycle = logger.events[-1].cycle
+
+    def _preprocess_events(self, logger):
+        """Extract computation/traffic events per node."""
+        self.node_events = {i: {"comp": [], "traf": []} for i in range(len(self.points[1]))}
+    
+        # Process computation events
+        for event in logger.events:
+            if event.type == nocsim.EventType.START_COMPUTATION:
+                node = event.info.node
+                start = event.cycle
+                
+                # Find matching END_COMPUTATION with error handling
+                try:
+                    end_event = next(
+                        e for e in logger.events 
+                        if e.type == nocsim.EventType.END_COMPUTATION 
+                        and e.info.node == node
+                        and e.cycle > start  # Ensure valid duration
+                    )
+                    duration = end_event.cycle - start + 1 # Inclusive duration
+                    self.node_events[node]["comp"].append((start, duration))
+                except StopIteration:
+                    print(f"Warning: No END_COMPUTATION found for node {node} at cycle {start}")
+                    continue 
+                
+            elif event.type == nocsim.EventType.OUT_TRAFFIC:
+                if not event.info.history:
+                    continue  # Skip if no history
+                
+                # Calculate total duration of the communication
+                starts = [h.start for h in event.info.history]
+                ends = [h.end for h in event.info.history]
+                overall_start = min(starts)
+                overall_end = max(ends)
+                duration = overall_end - overall_start + 1 # Inclusive duration
+                
+                # Use the ORIGINATING NODE (first history entry's rsource)
+                originating_node = event.info.history[0].rsource
+                self.node_events[originating_node]["traf"].append((overall_start, duration))
+                        
+    
+    def _print_node_events(self):
+        """Print event data for debugging."""
+        
+        for node, events in self.node_events.items():
+            print(f"Node {node}:")
+            print(f"Computation events: {events['comp']}")
+            print(f"Traffic events: {events['traf']}")
+            print()
+
+    def plot_timeline(self):
+        """Draw horizontal bars for events."""
+        for node, events in self.node_events.items():
+            # Plot computation events (red)
+            if events["comp"]:
+                self.ax2d.broken_barh(events["comp"], (node - 0.4, 0.8), facecolors='tomato', label="Computation")
+            # Plot traffic events (blue)
+            if events["traf"]:
+                self.ax2d.broken_barh(events["traf"], (node - 0.4, 0.8), facecolors='dodgerblue', label="Traffic", alpha=0.5)
+        
+        # Deduplicate legend entries
+        handles, labels = self.ax2d.get_legend_handles_labels()
+        unique_labels = dict(zip(labels, handles))
+        self.ax2d.legend(unique_labels.values(), unique_labels.keys())
+        
+        # Set y-ticks to node IDs
+        #self.ax2d.set_yticks(range(len(self.points[1])))
+        self.ax2d.set_yticks(range(2))
+        
+        # set x-ticks to cycle numbers
+        self.ax2d.set_xticks(range(0, self.max_cycle, 10))
+        
 
 
 

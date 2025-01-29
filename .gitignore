@@ -179,4 +179,6 @@ config_files/runs/
 config_files/arch.json
 config_files/save_data
 
+#visuals
+visuals/
 

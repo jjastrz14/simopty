@@ -105,49 +105,6 @@ if __name__ == "__main__":
     # plot_mapping_gif(mapper)
     # # Create the configuration file from the arch and the structure
     # mapper.mapping_to_json(CONFIG_DUMP_DIR + "/dump1.json", file_to_append=ARCH_FILE)
-
-    # Create a SimulatorStub object
-    stub = ss.SimulatorStub(EX_DIR)
-
-    # Run the simulation
-    processors = list(range(6))
-    config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
-    # results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
-    results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
-    print(results)
-    print(logger.print_events())
-    # # print(logger.events[1].info.history[0].rsource)
-    # # print(logger.events[1].info.history[0].rsink)
-    # # print(logger.events[1].info.history[0].start)
-    # # print(logger.events[1].info.history[0].end)
-    # # print(logger.events[1].info.history[1].rsource)
-    # # print(logger.events[1].info.history[1].rsink)
-    # # print(logger.events[1].info.history[1].start)
-    # # print(logger.events[1].info.history[1].end)
-    # # print(logger.events[1].info)
-
-    NoCPlotter().plot(logger,"config_files/dumps/dump.json" )
-    
-
-    
-    #print(logger[0].events[3].info.history)
-    #print(logger[0].events[3].info.history[0])
-    #print(logger[0].events[3].info.history[1])
-    #print(logger[0].events[3].info.history[2])
-    print("\n")
-    for event in logger.events:
-        print(event)
-        print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
-              f" Ttype: {event.ttype}, Info: {event.info}")
-    
-    print("-------------------")
-    info_0 = logger.get_event_info(0)
-    info_1 = logger.get_event_info(1)
-    info_2 = logger.get_event_info(2)
-    print(info_0)
-    print(info_1)
-    print(info_2)
-    print("-------------------")
     
     # Define a Optimization object
 
@@ -183,16 +140,15 @@ if __name__ == "__main__":
     # print(shortest[0], 1/shortest[1])
 
     # model = test_model((28, 28, 1))
-    # # model = load_model("ResNet50")
-    # # model = load_model("MobileNet")
-    # # model = load_model("MobileNetV2")
+    # # # model = load_model("ResNet50")
+    # # # model = load_model("MobileNet")
+    # # # model = load_model("MobileNetV2")
 
-    # # model.summary()
-    # # plot_model(model, to_file="visual/model.png", show_shapes=True)
-    # # analyze_ops(model, True)
+    # #model.summary()
+    # #plot_model(model, to_file="visual/model.png", show_shapes=True)
+    # # # analyze_ops(model, True)
 
-    # # print(split_spatial_dims(model.layers[2], 2))
-
+    # # # print(split_spatial_dims(model.layers[2], 2))
     
     # task_graph = model_to_graph(model, verbose=True)
     # plot_graph(task_graph)
@@ -208,17 +164,76 @@ if __name__ == "__main__":
     #     alpha = 1.,
     #     beta = 1.2,
     # )
-    # n_procs = 4
-    # # opt = op.ParallelAntColony(n_procs, params, grid, dep_graph)
+    # n_procs = 4 #what is the biggest number of processors that can be used regarding the grid size?
+    # # opt = op.ParallelAntColony(n_procs, params, grid, dep_graph) !deph_graph is the old one (test)
     # opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
 
     # shortest = opt.run(once_every=1, show_traces= False)
     # print(shortest[1])
     # print(opt.path_length(shortest[1], verbose = True))
+    
     # # Load the statistics and plot the results
     # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
-    # print(stats)
+    # #print(stats)
 
+    # Create a SimulatorStub object
+    stub = ss.SimulatorStub(EX_DIR)
+
+    # Run the simulation
+    processors = list(range(6))
+    #config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
+    #results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
+    #results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
+    #test
+    results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
+    print(results)
+    #print(logger.print_events())
+    # print(logger.events[1].info.history[0].rsource)
+    # print(logger.events[1].info.history[0].rsink)
+    # print(logger.events[1].info.history[0].start)
+    # print(logger.events[1].info.history[0].end)
+    # print(logger.events[1].info.history[1].rsource)
+    # print(logger.events[1].info.history[1].rsink)
+    # print(logger.events[1].info.history[1].start)
+    # print(logger.events[1].info.history[1].end)
+    # print(logger.events[1].info)
+
+    #NoCPlotter().plot(logger,"config_files/runs/test_run.json" )
+    
+    #Initialize plotter with timeline support
+    plotter = NoCTimelinePlotter()
+    plotter.plot(logger, "config_files/runs/test_run.json")  # Original 3D plot
+
+    # Generate 2D timeline
+    plotter.setup_timeline(logger)
+    plotter.plot_timeline()
+    plotter._print_node_events()
+
+    # Save/display both plots
+    plt.savefig("visual/timeline.png")  # Static 2D timeline
+    #plt.show()                   # Show 3D animation + 2D timeline
+        
+    # print(logger[0].events[3].info.history)
+    # print(logger[0].events[3].info.history[0])
+    # print(logger[0].events[3].info.history[1])
+    # print(logger[0].events[3].info.history[2])
+    print("\n")
+    for event in logger.events:
+        print(event)
+        print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+              f"Info: {event.info}")
+        if event.type == nocsim.EventType.START_COMPUTATION:
+            print(f"Node ID: {event.info.node}")
+        elif event.type == nocsim.EventType.OUT_TRAFFIC:
+            print(f"History: {event.info.history}")
+    print("-------------------")
+    # info_0 = logger.get_event_info(0)
+    # info_1 = logger.get_event_info(1)
+    # info_2 = logger.get_event_info(2)
+    # print(info_0)
+    # print(info_1)
+    # print(info_2)
+    # print("-------------------")
 
 
 
