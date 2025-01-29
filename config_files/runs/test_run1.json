@@ -29,6 +29,8 @@
             "id" : 1,
             "layer_id": 0,
             "node" : 0,
+            "size" : 3,
+            "weight_size" : 1,
             "type" : "COMP_OP",
             "ct_required" : 10,
             "dep" : [-1]
