@@ -449,6 +449,16 @@ class ParallelAntColony(AntColony):
         self.statistics["mdn"] = []
         self.statistics["std"] = []
         self.statistics["best"] = []
+        
+        #Calculate and store intervals for parallel processing
+        base = self.par.n_best // self.n_processes
+        remainder = self.par.n_best % self.n_processes
+        self.intervals = []
+        start = 0
+        for i in range(self.n_processes):
+            end = start + base + (1 if i < remainder else 0)
+            self.intervals.append((start, end))
+            start = end
 
     
     def run(self, once_every = 10, show_traces = False):
@@ -587,10 +597,11 @@ class ParallelAntColony(AntColony):
         with closing(mp.Pool(processes = self.n_processes, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
             # generate the paths in parallel: each process is assigned to a subsed of the ants
             # evenly distributed
-            intervals = [(i, i + self.par.n_ants//self.n_processes + min(i, self.par.n_ants % self.n_processes)) for i in range(0, self.par.n_ants, self.par.n_ants//self.n_processes)]
-            # print(intervals)
-            colony_paths = pool.map_async(walk_batch,[self.ants[start:end] for start, end in intervals])
+            #intervals = [(i, i + self.par.n_ants//self.n_processes + min(i, self.par.n_ants % self.n_processes)) for i in range(0, self.par.n_ants, self.par.n_ants//self.n_processes)]
+            #print(intervals)
+            colony_paths = pool.map_async(walk_batch,[self.ants[start:end] for start, end in self.intervals])
             colony_paths = colony_paths.get()
+            
         pool.join()
         # unpack the batches of paths
         colony_paths = [path for batch in colony_paths for path in batch]
@@ -615,8 +626,7 @@ class ParallelAntColony(AntColony):
         
         # update the pheromones in parallel
         with closing(mp.Pool(processes = self.n_processes, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
-            intervals = [(i, i + self.par.n_best//self.n_processes + min(i, self.par.n_best % self.n_processes)) for i in range(0, self.par.n_best, self.par.n_best//self.n_processes)]
-            pool.map(update_pheromones_batch, [best_paths[start:end] for start, end in intervals])
+            pool.map(update_pheromones_batch, [best_paths[start:end] for start, end in self.intervals])
         pool.join()
 
     def update_heuristics(self): 

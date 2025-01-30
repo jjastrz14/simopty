@@ -98,7 +98,7 @@ if __name__ == "__main__":
 
     model.summary()
     plot_model(model, to_file="visual/model.png", show_shapes=True)
-    analyze_ops(model, False)
+    #analyze_ops(model, False)
 
     # # # print(split_spatial_dims(model.layers[2], 2))
     
@@ -112,18 +112,18 @@ if __name__ == "__main__":
         n_ants = 100,
         rho = 0.05,
         n_best = 20,
-        n_iterations = 150,
+        n_iterations = 10,
         alpha = 1.,
         beta = 1.2,
     )
     
-    n_procs = 10 #n_ants should be divisable by of n_procs
+    n_procs = 100 #n_processors shouldn't be greater than n_ants
 
     opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
     #opt = op.AntColony(params, grid, task_graph)
 
-    shortest = opt.run_with_saves(once_every=1, show_traces= False) #run with init, middle and best saves
-    #shortest = opt.run(once_every=1, show_traces= False)
+    #shortest = opt.run_with_saves(once_every=1, show_traces= False) #run with init, middle and best saves
+    shortest = opt.run(once_every=1, show_traces= False)
     print(shortest[1])
     print(opt.path_length(shortest[1], verbose = True))
     opt.save_path_json(shortest[1], SAVE_DATA_DIR + "/all_time_shortest_path.json")
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     #results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
 
     #path to save the data
-    path_data = "config_files/save_data/dump_init.json"
+    path_data = SAVE_DATA_DIR + "/all_time_shortest_path.json"
     #path_data = "config_files/runs/test_run5.json"
     results, logger = stub.run_simulation(path_data, verbose = True)
     print(results)
