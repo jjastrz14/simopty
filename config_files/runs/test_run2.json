@@ -9,8 +9,7 @@
             "routing_function" : "dim_order",
             "num_vcs" : 16,
             "user_defined_traffic" : 1,
-            "watch_out" : "-",
-            "logger": 1
+            "watch_out" : "-"
         },
         
     "workload" : [
@@ -27,8 +26,9 @@
         },
         {
             "id" : 1,
-            "layer_id": 0,
             "node" : 1,
+            "size" : 8,
+            "weight_size" : 3,
             "type" : "COMP_OP",
             "ct_required" : 20,
             "dep" : [-1]

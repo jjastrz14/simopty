@@ -23,6 +23,7 @@ import sys
 import os
 import numpy as np
 import json
+from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib.pyplot as plt
@@ -108,10 +109,12 @@ class NoCPlotter:
             y = p // arch["k"]
             z = 0
             self.points[0].append((x, y, z)) # 0 is for NoC elements
-            self.points[1].append((x, y, z+0.5)) # 1 is for NPUs
+            self.points[1].append((x, y, z-0.5)) # 1 is for NPUs
 
         # Build the list of connections based on the mesh topology
         self.topology = arch["topology"]
+        self.k = arch["k"]
+        self.n = arch["n"]
         for node in range(arch["k"]** arch["n"]):
             neighbors = _get_neighbors(arch["k"], arch["n"], node, self.topology) +[(node, 0)]
             for neighbor in neighbors:
@@ -138,8 +141,8 @@ class NoCPlotter:
         self.fig = plt.figure()
         self.ax = Axes3D(self.fig)
         self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_box_aspect([2, 2, 0.7])
-        # self.ax.axis("off")
+        self.ax.set_box_aspect([1*self.k, 1*self.k, self.k * 0.5])
+        self.ax.axis("off")
         self.ax.set_xlabel('X')
         self.ax.set_ylabel('Y')
         self.ax.set_zlabel('Z')
@@ -226,7 +229,7 @@ class NoCPlotter:
         points_coordinates = np.array(self.points[1])
         i = 0
         for x, y, z in zip(points_coordinates[:, 0], points_coordinates[:, 1], points_coordinates[:, 2]):
-            self.artists_points["txt"].append(self.ax.text(x, y, z + 0.05, i, size=12, color='red', fontdict={'weight': 'bold'}, ha='left', va='bottom'))
+            self.artists_points["txt"].append(self.ax.text(x, y, z - 0.07, i, size=5, color='k', fontdict={'weight': 'bold'}, ha='left', va='bottom'))
             i = i + 1
 
     def plot_nodes(self, points):
@@ -267,11 +270,12 @@ class NoCPlotter:
         # self.artists_points[1].append(self.ax.scatter(xs, ys, zs,color = "tomato" , s = 200, marker="s", alpha = 0.3)) 
     ###############################################################################
 
-    def colorize_nodes(self, currently_active:set):
+    def colorize_nodes(self, currently_active:set, verbose:bool = False):
         """
         Colorize the nodes
         """
-        print("Currently active nodes: ", currently_active)
+        if verbose:
+            print("Currently active nodes: ", currently_active)
         for i in range(len(self.points[0])):
             if i in currently_active:
                 self.artists_points[0][i].set_alpha(1)
@@ -279,12 +283,13 @@ class NoCPlotter:
                 self.artists_points[0][i].set_alpha(0.3)
 
                 
-    def colorize_pes(self, currently_active_comp:set, currently_active_traf:set):
+    def colorize_pes(self, currently_active_comp:set, currently_active_traf:set, verbose: bool = False):
         """
         Colorize the PEs
         """
-        print("Currently active PEs for computation: ", currently_active_comp)
-        print("Currently active PEs for traffic: ", currently_active_traf)
+        if verbose:
+            print("Currently active PEs for computation: ", currently_active_comp)
+            print("Currently active PEs for traffic: ", currently_active_traf)
         for i in range(len(self.points[1])):
             if i in currently_active_comp:
                 self.artists_points[1][i].set_color("tomato")
@@ -296,11 +301,12 @@ class NoCPlotter:
                 self.artists_points[1][i].set_color("tomato")
                 self.artists_points[1][i].set_alpha(0.3)
 
-    def colorize_connections(self, currently_active:set):
+    def colorize_connections(self, currently_active:set, verbose: bool = False):
         """
         Colorize the connections
         """
-        print("Currently active connections: ", currently_active)
+        if verbose:
+            print("Currently active connections: ", currently_active)
         for c in self.connections:
             to_check = self.artists_vconnections if c[0][0] == c[0][1] else self.artists_hconnections
             if c[0] in currently_active:
@@ -384,7 +390,7 @@ class NoCPlotter:
         self.ax.add_collection3d(poly)
     ###############################################################################
 
-    def gen_activity_animation(self, logger, file_name: Union[str, None] = None):
+    def gen_activity_animation(self, logger, pause: float = 0.5, file_name: Union[str, None] = None, verbose: bool = False):
         """
         The function takes as input a logger object (defined in the nocsim module, exposed in restart). This is used as a chonological timeline
         on which the events that happen on NoC are registered. We unroll this timeline and plot it in a matplotlib animation
@@ -401,7 +407,7 @@ class NoCPlotter:
                             nocsim.EventType.END_COMPUTATION : nocsim.EventType.START_COMPUTATION,
                             nocsim.EventType.END_SIMULATION : nocsim.EventType.START_SIMULATION}
 
-        self.timeStamp = self.ax.text(1, 1, 1, 0, size=12, color='red')
+        self.timeStamp = self.ax.text(0, 0, 0.5, 0, size=12, color='red')
         cycles = logger.events[-1].cycle
         events_pointer = 0 # pointer to the events in the logger
         current_events = set() # set of the current events
@@ -410,7 +416,10 @@ class NoCPlotter:
             """
             Update the graph at each cycle
             """
-            nonlocal events_pointer, current_events, anti_events_map
+            nonlocal events_pointer, current_events, anti_events_map, verbose
+            if verbose:
+                print(f"--- Cycle: {cycle} ---")
+                print(f"Events pointer: {events_pointer}")
             #for each cycle, compare it with the starting cycle of the event
             while cycle >= logger.events[events_pointer].cycle:
                 if (logger.events[events_pointer].type in anti_events_map.values()):
@@ -427,7 +436,7 @@ class NoCPlotter:
                             logger.events[event].additional_info == additional_info and
                             logger.events[event].ctype == ctype):
                             
-                            assert logger.events[event].cycle < logger.events[events_pointer].cycle
+                            assert logger.events[event].cycle <= logger.events[events_pointer].cycle
                             # remove the event from the current events
                             event_to_remove.append(event)
                             break
@@ -465,23 +474,25 @@ class NoCPlotter:
                 elif logger.events[event].type == nocsim.EventType.START_COMPUTATION:
                     currently_active_pes_comp.add(logger.events[event].info.node)
 
-            self.colorize_nodes(currently_active_nodes)
-            self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf)
-            self.colorize_connections(currently_active_connections)
+            self.colorize_nodes(currently_active_nodes, verbose)
+            self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf, verbose)
+            self.colorize_connections(currently_active_connections, verbose)
             self.timeStamp.set_text(f"Cycle: {cycle}")
 
             plt.draw()
+        # Crea l'animazione utilizzando FuncAnimation
+        ani = FuncAnimation(self.fig, _update_graph, frames=range(cycles), repeat=False, interval=pause*100)
 
-        for c in range(cycles):
-            print(f"--- Cycle: {c}")
-            print(f"Events pointer: {events_pointer}")
-            _update_graph(c)
-            plt.pause(0.5)
+        # Salva l'animazione se file_name è specificato
+        if file_name:
+            ani.save(file_name, writer='imagemagick', fps=1/pause)
+
+        plt.show()
             
             
     ###############################################################################
 
-    def plot(self,logger, network_file = None, file_name = None):
+    def plot(self,logger, pause, network_file = None, file_name = None, verbose = False):
         """
         Main Execution Point
         """
@@ -500,7 +511,7 @@ class NoCPlotter:
         # plot_faces()
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
-        self.gen_activity_animation(logger, file_name)
+        self.gen_activity_animation(logger, pause,file_name, verbose)
         plt.show()
     ###############################################################################
 
