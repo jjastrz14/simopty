@@ -486,9 +486,9 @@ class NoCPlotter:
 
         # Salva l'animazione se file_name è specificato
         if file_name:
-            ani.save(file_name, writer='imagemagick', fps=1/pause)
+            ani.save(file_name, writer='pillow', fps=1/pause)
 
-        plt.show()
+        #plt.show()
             
             
     ###############################################################################
@@ -512,9 +512,8 @@ class NoCPlotter:
         # plot_faces()
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
-        self.gen_activity_animation(logger, pause,file_name, verbose)
-        plt.show()
-        #plt.savefig("visual/animation.png", dpi=300, bbox_inches='tight')
+        self.gen_activity_animation(logger, pause, file_name, verbose)
+        #plt.show()
     ###############################################################################
 
 
@@ -527,8 +526,10 @@ class NoCTimelinePlotter(NoCPlotter):
         self.ax2d = None
         self.node_events = {}  # Stores event data: {node: {"comp": [(start, duration)], "traf": [...]}}
 
-    def setup_timeline(self, logger):
+    def setup_timeline(self, logger, config_file):
         """Initialize 2D timeline figure and preprocess events."""
+        # Initialize parent class with architecture config
+        self.init(config_file)  # Loads node data from config_file
         self._preprocess_events(logger)
         self.fig2d, self.ax2d = plt.subplots(figsize=(10, 6))
         self.ax2d.set_xlabel("Cycle")
@@ -561,19 +562,27 @@ class NoCTimelinePlotter(NoCPlotter):
                     continue 
                 
             elif event.type == nocsim.EventType.OUT_TRAFFIC:
-                if not event.info.history:
-                    continue  # Skip if no history
-                
-                # Calculate total duration of the communication
-                starts = [h.start for h in event.info.history]
-                ends = [h.end for h in event.info.history]
-                overall_start = min(starts)
-                overall_end = max(ends)
-                duration = overall_end - overall_start + 1 # Inclusive duration
-                
-                # Use the ORIGINATING NODE (first history entry's rsource)
+                id_message = event.additional_info
+                communication_type = event.ctype #comunication type of the event
+                start = event.cycle
                 originating_node = event.info.history[0].rsource
-                self.node_events[originating_node]["traf"].append((overall_start, duration))
+                
+                # Find matching IN_TRAFFIC with error handling
+                try:
+                    end_event = next(
+                        e for e in logger.events 
+                        if e.type == nocsim.EventType.IN_TRAFFIC 
+                        and e.additional_info == id_message
+                        and e.ctype == communication_type
+                        and e.cycle > start  # Ensure valid duration
+                    )
+                    duration = end_event.cycle - start + 1  # Inclusive duration
+                    
+                    # Use the ORIGINATING NODE (first history entry's rsource) as the node ID
+                    self.node_events[originating_node]["traf"].append((start, duration))
+                except StopIteration:
+                    print(f"Warning: No IN_TRAFFIC  found for id message {id_message}  with communication type {communication_type} at cycle {start}")
+                    continue 
                         
     
     def _print_node_events(self):
@@ -587,6 +596,7 @@ class NoCTimelinePlotter(NoCPlotter):
 
     def plot_timeline(self):
         """Draw horizontal bars for events."""
+        
         for node, events in self.node_events.items():
             # Plot computation events (red)
             if events["comp"]:
@@ -610,7 +620,16 @@ class NoCTimelinePlotter(NoCPlotter):
         # Auto-adjust ticks
         self.ax2d.xaxis.set_major_locator(ticker.MaxNLocator(nbins=15))
         self.ax2d.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
-            
+        
+        # Add vertical lines at each major x-tick
+        for tick in self.ax2d.xaxis.get_major_locator().tick_values(self.ax2d.get_xlim()[0], self.ax2d.get_xlim()[1]):
+            self.ax2d.axvline(x=tick, color='grey', linestyle='-', linewidth=0.5, zorder = 0)
+
+        # Add horizontal lines at the corners of the x nodes
+        for node in range(len(self.points[1])):
+            self.ax2d.axhline(y=node - 0.4, color='grey', linestyle='--', linewidth=0.5)
+            self.ax2d.axhline(y=node + 0.4, color='grey', linestyle='--', linewidth=0.5)
+        
 
 
 

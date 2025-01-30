@@ -562,7 +562,7 @@ class ParallelAntColony(AntColony):
                 if not middle_config_saved and i >= self.par.n_iterations // 2:
                     random_middle_config = random.choice(all_paths)  # Choose a random configuration
                     self.save_path_json(random_middle_config, SAVE_DATA_DIR + "/dump_mid.json")
-                    middle_config_saved = True  # Ensure we save only once
+                    middle_config_saved = True  # Ensure we save it only once
 
             # Finalize the simulation: save the data
             np.save("statistics.npy", self.statistics)

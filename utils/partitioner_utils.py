@@ -828,7 +828,8 @@ def _adaptive_parsel(layer):
         A subroutine to split the convolutional layers: we employ spatial and output channel partitioning
         '''
         pass
-
+    
+    #2^splitting factor - number of partinions, just for the spatial partitioning
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.Flatten, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
         return 0,1,1
