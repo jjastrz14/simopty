@@ -17,6 +17,7 @@ import os, sys
 import logging
 import enum
 import numpy as np
+import random
 from numpy.random import seed
 import simulator_stub as ss
 import mapper as ma
@@ -259,7 +260,10 @@ class AntColony(BaseOpt):
                 shortest_path = single_iteration(i, once_every, rho_step)
                 if shortest_path[1] < all_time_shortest_path[1]:
                     all_time_shortest_path = shortest_path 
-
+        
+        #if all_time_shortest_path[1] < np.inf:
+            #self.save_path_json(all_time_shortest_path[0], SAVE_DATA_DIR + "/all_time_shortest_path.json")
+            
         return all_time_shortest_path
 
 
@@ -330,7 +334,34 @@ class AntColony(BaseOpt):
         stub = ss.SimulatorStub()
         result, logger = stub.run_simulation(CONFIG_DUMP_DIR + "/dump.json")
         return result, logger
+    
+    def save_path_json(self, path_result, filename):
+        """Handle different result formats from ACO/ParallelACO"""
+        # Extract actual path list from result tuple
+        if isinstance(path_result, tuple):
+            if len(path_result) == 3:  # ParallelACO format: (ant_id, path, cost)
+                _, path_list, _ = path_result
+            elif len(path_result) == 2:  # Regular ACO format: (path, cost)
+                path_list, _ = path_result
+            else:
+                raise ValueError("Unexpected path result format")
+        else:
+            path_list = path_result
 
+        # Create mapping from cleaned path data
+        mapping = {
+            task_id: int(pe) 
+            for task_id, pe, _ in path_list 
+            if task_id not in {"start", "end"}
+        }
+        
+        # Initialize and save mapper
+        mapper = ma.Mapper()
+        mapper.init(self.task_graph, self.domain)
+        mapper.set_mapping(mapping)
+        mapper.mapping_to_json(filename, file_to_append=ARCH_FILE)
+        print("Saved mapping to", filename)
+        
 
     def generate_colony_paths(self):
         colony_paths = []
@@ -451,6 +482,7 @@ class ParallelAntColony(AntColony):
             self.statistics["mdn"].append(moving_average)
             self.statistics["std"].append(moving_std)
             self.statistics["best"].append(shortest_path)
+            
             return shortest_path
 
 
@@ -471,8 +503,71 @@ class ParallelAntColony(AntColony):
                 shortest_path = single_iteration(i, once_every, rho_step)
                 if shortest_path[2] < all_time_shortest_path[2]:
                     all_time_shortest_path = shortest_path 
+        
             # Finalize the simulation: save the data
             np.save("statistics.npy", self.statistics)
+
+        return all_time_shortest_path
+    
+    
+    def run_with_saves(self, once_every = 10, show_traces = False):
+        """
+        Run the algorithm and save to json initial path, middle path and best path
+        Function for vis and debug purposes
+        """
+
+        def single_iteration(i, once_every, rho_step=0):
+            all_paths = self.generate_colony_paths()
+            self.update_pheromones(all_paths)
+            self.update_heuristics()
+            shortest_path = min(all_paths, key=lambda x: x[2])
+            moving_average = np.mean([path[2] for path in all_paths])
+            moving_std = np.std([path[2] for path in all_paths])
+            if once_every is not None and i % once_every == 0:
+                print("Iteration #", i, ", chosen path is:", shortest_path)
+                print("Moving average for the path length is:", moving_average)
+
+            self.evaporate_pheromones(rho_step)
+            self.statistics["mdn"].append(moving_average)
+            self.statistics["std"].append(moving_std)
+            self.statistics["best"].append(shortest_path)
+
+            return shortest_path, all_paths  # Return both shortest_path and all_paths
+
+        shortest_path = None
+        all_time_shortest_path = (np.inf, "placeholder", np.inf)
+
+        # Save initial configuration
+        initial_config = self.generate_colony_paths()  # Capture initial configuration
+        self.save_path_json(initial_config[0], SAVE_DATA_DIR + "/dump_init.json")  # Save initial config
+
+        if self.par.rho_start is not None and self.par.rho_end is not None:
+            self.rho = self.par.rho_start
+            rho_step = (self.par.rho_end - self.par.rho_start) / self.par.n_iterations
+        else:
+            self.rho = self.par.rho
+            rho_step = 0
+
+        middle_config_saved = False  # Flag to ensure we save only one middle configuration
+
+        if show_traces:
+            all_time_shortest_path = self.run_and_show_traces(single_iteration, once_every=once_every, n_iterations=self.par.n_iterations, rho_step=rho_step)
+        else:
+            for i in range(self.par.n_iterations):
+                shortest_path, all_paths = single_iteration(i, once_every, rho_step)  # Unpack the return values
+                if shortest_path[2] < all_time_shortest_path[2]:
+                    all_time_shortest_path = shortest_path
+
+                # Save a random configuration from the middle of the simulation
+                if not middle_config_saved and i >= self.par.n_iterations // 2:
+                    random_middle_config = random.choice(all_paths)  # Choose a random configuration
+                    self.save_path_json(random_middle_config, SAVE_DATA_DIR + "/dump_mid.json")
+                    middle_config_saved = True  # Ensure we save only once
+
+            # Finalize the simulation: save the data
+            np.save("statistics.npy", self.statistics)
+            if all_time_shortest_path[2] < np.inf:
+                self.save_path_json(all_time_shortest_path[1], SAVE_DATA_DIR + "/all_time_shortest_path.json")
 
         return all_time_shortest_path
 

@@ -144,9 +144,9 @@ if __name__ == "__main__":
     # # # model = load_model("MobileNet")
     # # # model = load_model("MobileNetV2")
 
-    # #model.summary()
-    # #plot_model(model, to_file="visual/model.png", show_shapes=True)
-    # # # analyze_ops(model, True)
+    # model.summary()
+    # plot_model(model, to_file="visual/model.png", show_shapes=True)
+    # #analyze_ops(model, False)
 
     # # # print(split_spatial_dims(model.layers[2], 2))
     
@@ -157,20 +157,23 @@ if __name__ == "__main__":
     # grid.init(6, 2, dm.Topology.TORUS)
 
     # params = op.ACOParameters(
-    #     n_ants = 100,
+    #     n_ants = 80,
     #     rho = 0.05,
     #     n_best = 20,
     #     n_iterations = 150,
     #     alpha = 1.,
     #     beta = 1.2,
     # )
-    # n_procs = 4 #what is the biggest number of processors that can be used regarding the grid size?
+    # n_procs = 8 #what is the biggest number of processors that can be used regarding the grid size?
     # # opt = op.ParallelAntColony(n_procs, params, grid, dep_graph) !deph_graph is the old one (test)
     # opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
+    # #opt = op.AntColony(params, grid, task_graph)
 
-    # shortest = opt.run(once_every=1, show_traces= False)
+    # shortest = opt.run_with_saves(once_every=1, show_traces= False)
     # print(shortest[1])
     # print(opt.path_length(shortest[1], verbose = True))
+    #opt.save_path_json(shortest[1], SAVE_DATA_DIR + "/all_time_shortest_path.json")
+            
     
     # # Load the statistics and plot the results
     # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
@@ -184,9 +187,13 @@ if __name__ == "__main__":
     #config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
     #results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
     #results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
-    #test
-    results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
+
+    #path to save the data
+    path_data = "config_files/save_data/all_time_shortest_path.json"
+    #path_data = "config_files/save_data/all_time_shortest_path.json"
+    results, logger = stub.run_simulation(path_data, verbose = True)
     print(results)
+    
     #print(logger.print_events())
     # print(logger.events[1].info.history[0].rsource)
     # print(logger.events[1].info.history[0].rsink)
@@ -202,14 +209,14 @@ if __name__ == "__main__":
     
     #Initialize plotter with timeline support
     plotter = NoCTimelinePlotter()
-    plotter.plot(logger, "config_files/runs/test_run.json")  # Original 3D plot
+    plotter.plot(logger, path_data)  # Original 3D plot
 
     # Generate 2D timeline
     plotter.setup_timeline(logger)
     plotter.plot_timeline()
     plotter._print_node_events()
 
-    # Save/display both plots
+    # # Save/display both plots
     plt.savefig("visual/timeline.png")  # Static 2D timeline
     #plt.show()                   # Show 3D animation + 2D timeline
         
@@ -217,16 +224,16 @@ if __name__ == "__main__":
     # print(logger[0].events[3].info.history[0])
     # print(logger[0].events[3].info.history[1])
     # print(logger[0].events[3].info.history[2])
-    print("\n")
-    for event in logger.events:
-        print(event)
-        print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
-              f"Info: {event.info}")
-        if event.type == nocsim.EventType.START_COMPUTATION:
-            print(f"Node ID: {event.info.node}")
-        elif event.type == nocsim.EventType.OUT_TRAFFIC:
-            print(f"History: {event.info.history}")
-    print("-------------------")
+    # print("\n")
+    # for event in logger.events:
+    #     print(event)
+    #     print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+    #           f"Info: {event.info}")
+    #     if event.type == nocsim.EventType.START_COMPUTATION:
+    #         print(f"Node ID: {event.info.node}")
+    #     elif event.type == nocsim.EventType.OUT_TRAFFIC:
+    #         print(f"History: {event.info.history}")
+    # print("-------------------")
     # info_0 = logger.get_event_info(0)
     # info_1 = logger.get_event_info(1)
     # info_2 = logger.get_event_info(2)

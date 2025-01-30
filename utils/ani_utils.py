@@ -26,6 +26,7 @@ import json
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 PATH_TO_SIMULATOR = os.path.join("/home/jjastrzebski/Projects/restart", "lib")
 sys.path.append(PATH_TO_SIMULATOR)
 import nocsim
@@ -501,8 +502,8 @@ class NoCPlotter:
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
         self.gen_activity_animation(logger, file_name)
-        #plt.show()
-        plt.savefig("visual/animation.png", dpi=300, bbox_inches='tight')
+        plt.show()
+        #plt.savefig("visual/animation.png", dpi=300, bbox_inches='tight')
     ###############################################################################
 
 
@@ -542,7 +543,7 @@ class NoCTimelinePlotter(NoCPlotter):
                         and e.info.node == node
                         and e.cycle > start  # Ensure valid duration
                     )
-                    duration = end_event.cycle - start + 1 # Inclusive duration
+                    duration = end_event.cycle - start + 1  # Inclusive duration
                     self.node_events[node]["comp"].append((start, duration))
                 except StopIteration:
                     print(f"Warning: No END_COMPUTATION found for node {node} at cycle {start}")
@@ -589,12 +590,16 @@ class NoCTimelinePlotter(NoCPlotter):
         self.ax2d.legend(unique_labels.values(), unique_labels.keys())
         
         # Set y-ticks to node IDs
-        #self.ax2d.set_yticks(range(len(self.points[1])))
-        self.ax2d.set_yticks(range(2))
+        self.ax2d.set_yticks(range(len(self.points[1])))
+        #for debug purposes, only show first 2 nodes
+        #self.ax2d.set_yticks(range(2))
         
         # set x-ticks to cycle numbers
-        self.ax2d.set_xticks(range(0, self.max_cycle, 10))
-        
+        self.ax2d.set_xlim(0, self.max_cycle)
+        # Auto-adjust ticks
+        self.ax2d.xaxis.set_major_locator(ticker.MaxNLocator(nbins=15))
+        self.ax2d.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+            
 
 
 
