@@ -482,11 +482,23 @@ class NoCPlotter:
 
             plt.draw()
         # Crea l'animazione utilizzando FuncAnimation
-        ani = FuncAnimation(self.fig, _update_graph, frames=range(cycles), repeat=False, interval=pause*100)
+        ani = FuncAnimation(self.fig, 
+                            _update_graph,
+                            init_func = _init, 
+                            blit = True, #to speed up the animation
+                            frames=range(cycles), 
+                            repeat=False, 
+                            interval=pause*100
+                            )
 
         # Salva l'animazione se file_name è specificato
         if file_name:
-            ani.save(file_name, writer='pillow', fps=1/pause)
+            ani.save(file_name, 
+                     writer='pillow', 
+                     fps=1/pause,
+                     savefig_kwargs={'facecolor': 'white'},
+                     dpi=150
+                     )
 
         #plt.show()
             
@@ -512,7 +524,7 @@ class NoCPlotter:
         # plot_faces()
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
-        self.gen_activity_animation(logger, pause, file_name, verbose)
+        self.gen_activity_animation(logger, pause, file_name, verbose = False)
         #plt.show()
     ###############################################################################
 
