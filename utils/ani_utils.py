@@ -198,11 +198,19 @@ class NoCPlotter:
 
             border = 0.5
 
-            segment1 = [(self.points[0][p1_ix][0], self.points[0][p1_ix][1], self.points[0][p1_ix][2]), (self.points[0][p1_ix][0] + (- border if in_plane == 1 else border if in_plane == 2 else 0), self.points[0][p1_ix][1] + (-border if in_plane == 3 else  border if in_plane == 4 else 0), self.points[0][p1_ix][2])]
-            segment2 = [(self.points[0][p2_ix][0], self.points[0][p2_ix][1], self.points[0][p2_ix][2]), (self.points[0][p2_ix][0] + ( border if in_plane == 1 else - border if in_plane == 2 else 0), self.points[0][p2_ix][1] + (border if in_plane == 3 else - border if in_plane == 4 else 0), self.points[0][p2_ix][2])]
+            segment1 = [(self.points[0][p1_ix][0], self.points[0][p1_ix][1], self.points[0][p1_ix][2]), 
+                        (self.points[0][p1_ix][0] + (- border if in_plane == 1 else border if in_plane == 2 else 0), 
+                         self.points[0][p1_ix][1] + (-border if in_plane == 3 else  border if in_plane == 4 else 0), 
+                         self.points[0][p1_ix][2])]
+            segment2 = [(self.points[0][p2_ix][0], self.points[0][p2_ix][1], self.points[0][p2_ix][2]), 
+                        (self.points[0][p2_ix][0] + ( border if in_plane == 1 else - border if in_plane == 2 else 0), 
+                         self.points[0][p2_ix][1] + (border if in_plane == 3 else - border if in_plane == 4 else 0), 
+                         self.points[0][p2_ix][2])]
 
-            artist1, = self.ax.plot([segment1[0][0], segment1[1][0]], [segment1[0][1], segment1[1][1]], [segment1[0][2], segment1[1][2]], color='black', alpha = 0.4)
-            artist2, = self.ax.plot([segment2[0][0], segment2[1][0]], [segment2[0][1], segment2[1][1]], [segment2[0][2], segment2[1][2]], color='black', alpha = 0.4)
+            artist1, = self.ax.plot([segment1[0][0], segment1[1][0]], [segment1[0][1], segment1[1][1]], 
+                                    [segment1[0][2], segment1[1][2]], color='black', alpha = 0.4)
+            artist2, = self.ax.plot([segment2[0][0], segment2[1][0]], [segment2[0][1], segment2[1][1]], 
+                                    [segment2[0][2], segment2[1][2]], color='black', alpha = 0.4)
 
             self.artists_hconnections[(p1_ix, p2_ix)] = [artist1, artist2]
 
@@ -234,7 +242,7 @@ class NoCPlotter:
 
     def plot_nodes(self, points):
         """
-        Annotating the points (NoC Nodes)using their index
+        Annotating the points (NoC Nodes) using their index
         """
         points_coordinates = []
         for p in points:
@@ -499,7 +507,6 @@ class NoCPlotter:
                      )
 
         #plt.show()
-            
             
     ###############################################################################
 
