@@ -285,10 +285,9 @@ class NoCPlotter:
         if verbose:
             print("Currently active nodes: ", currently_active)
         for i in range(len(self.points[0])):
-            if i in currently_active:
-                self.artists_points[0][i].set_alpha(1)
-            else:
-                self.artists_points[0][i].set_alpha(0.3)
+            target_alpha = 1 if i in currently_active else 0.3
+            if self.artists_points[0][i].get_alpha() != target_alpha:
+                self.artists_points[0][i].set_alpha(target_alpha)
 
                 
     def colorize_pes(self, currently_active_comp:set, currently_active_traf:set, verbose: bool = False):
@@ -300,14 +299,17 @@ class NoCPlotter:
             print("Currently active PEs for traffic: ", currently_active_traf)
         for i in range(len(self.points[1])):
             if i in currently_active_comp:
-                self.artists_points[1][i].set_color("tomato")
-                self.artists_points[1][i].set_alpha(1)
+                if self.artists_points[1][i].get_color() != "tomato" or self.artists_points[1][i].get_alpha() != 1:
+                    self.artists_points[1][i].set_color("tomato")
+                    self.artists_points[1][i].set_alpha(1)
             elif i in currently_active_traf:
-                self.artists_points[1][i].set_color("khaki")
-                self.artists_points[1][i].set_alpha(0.8)
+                if self.artists_points[1][i].get_color() != "khaki" or self.artists_points[1][i].get_alpha() != 0.8:
+                    self.artists_points[1][i].set_color("khaki")
+                    self.artists_points[1][i].set_alpha(0.8)
             else:
-                self.artists_points[1][i].set_color("tomato")
-                self.artists_points[1][i].set_alpha(0.3)
+                if self.artists_points[1][i].get_color() != "tomato" or self.artists_points[1][i].get_alpha() != 0.3:
+                    self.artists_points[1][i].set_color("tomato")
+                    self.artists_points[1][i].set_alpha(0.3)
 
     def colorize_connections(self, currently_active:set, verbose: bool = False):
         """
@@ -317,20 +319,14 @@ class NoCPlotter:
             print("Currently active connections: ", currently_active)
         for c in self.connections:
             to_check = self.artists_vconnections if c[0][0] == c[0][1] else self.artists_hconnections
-            if c[0] in currently_active:
-                if isinstance(to_check[c[0]], list):
-                    for a in to_check[c[0]]:
-                        a.set_alpha(1)
-                else:
-                    to_check[c[0]].set_alpha(1) 
+            target_alpha = 1 if c[0] in currently_active else 0.3
+            if isinstance(to_check[c[0]], list):
+                for a in to_check[c[0]]:
+                    if a.get_alpha() != target_alpha:
+                        a.set_alpha(target_alpha)
             else:
-                if isinstance(to_check[c[0]], list):
-                    for a in to_check[c[0]]:
-                        a.set_alpha(0.3)
-                        
-                else:
-                    to_check[c[0]].set_alpha(0.3)
-    
+                if to_check[c[0]].get_alpha() != target_alpha:
+                    to_check[c[0]].set_alpha(target_alpha)
 
     ###############################################################################
     def create_faces(self):
@@ -421,67 +417,54 @@ class NoCPlotter:
         current_events = set() # set of the current events
 
         def _update_graph(cycle):
-            """
-            Update the graph at each cycle
-            """
-            nonlocal events_pointer, current_events, anti_events_map, verbose
-            if verbose:
-                print(f"--- Cycle: {cycle} ---")
-                print(f"Events pointer: {events_pointer}")
-            #for each cycle, compare it with the starting cycle of the event
-            while cycle >= logger.events[events_pointer].cycle:
-                if (logger.events[events_pointer].type in anti_events_map.values()):
-                        current_events.add(events_pointer)
-                        events_pointer += 1
+            nonlocal events_pointer, current_events
+            
+            # Process events for current cycle
+            while events_pointer < len(logger.events) and cycle >= logger.events[events_pointer].cycle:
+                event = logger.events[events_pointer]
+                if event.type in anti_events_map.values():
+                    current_events.add(events_pointer)
                 else:
-                    # find the event in the current events and remove it
-                    event_type = anti_events_map[logger.events[events_pointer].type]
-                    additional_info = logger.events[events_pointer].additional_info
-                    ctype = logger.events[events_pointer].ctype
-                    event_to_remove = []
-                    for event in current_events:
-                        if (logger.events[event].type == event_type and
-                            logger.events[event].additional_info == additional_info and
-                            logger.events[event].ctype == ctype):
-                            
-                            assert logger.events[event].cycle <= logger.events[events_pointer].cycle
-                            # remove the event from the current events
-                            event_to_remove.append(event)
-                            break
-                     
-                    if len(event_to_remove) == 0:
-                        raise RuntimeError(f"Event {events_pointer} not found in the current events")
-                    for event in event_to_remove:
-                        current_events.remove(event)
-                    events_pointer += 1       
+                    # Find and remove matching event
+                    event_type = anti_events_map[event.type]
+                    additional_info = event.additional_info
+                    ctype = event.ctype
+                    to_remove = next(
+                        (e for e in current_events 
+                        if logger.events[e].type == event_type 
+                        and logger.events[e].additional_info == additional_info 
+                        and logger.events[e].ctype == ctype),
+                        None
+                    )
+                    if to_remove is not None:
+                        current_events.remove(to_remove)
+                events_pointer += 1
 
-
-            # loop over the current events and update the graph
+            # Prepare sets for active elements
             currently_active_nodes = set()
             currently_active_pes_comp = set()
             currently_active_pes_traf = set()
             currently_active_connections = set()
-            for event in current_events:
-                if logger.events[event].type == nocsim.EventType.OUT_TRAFFIC:
-                    # check what type of channel is active at the moment
-                    hystory = logger.events[event].info.history
-                    for h in hystory:
-                        # find the h element such that h[3]>= cycle and h4 <= cycle
+
+            # Single pass through current events to collect all active elements
+            for event_idx in current_events:
+                event = logger.events[event_idx]
+                if event.type == nocsim.EventType.OUT_TRAFFIC:
+                    for h in event.info.history:
                         if h.start <= cycle and h.end > cycle:
-                            currently_active_connections.add(tuple(sorted([h.rsource, h.rsink])))
                             currently_active_nodes.add(h.rsource)
                             currently_active_nodes.add(h.rsink)
+                            currently_active_connections.add(tuple(sorted([h.rsource, h.rsink])))
                             if h.rsource == h.rsink:
                                 currently_active_pes_traf.add(h.rsource)
                             break
                         elif h.start > cycle:
-                            # the connection is not active, the packet is still being processed by the source
                             currently_active_nodes.add(h.rsource)
-                            break   
+                            break
+                elif event.type == nocsim.EventType.START_COMPUTATION:
+                    currently_active_pes_comp.add(event.info.node)
 
-                elif logger.events[event].type == nocsim.EventType.START_COMPUTATION:
-                    currently_active_pes_comp.add(logger.events[event].info.node)
-
+            # Update visualization only where needed
             self.colorize_nodes(currently_active_nodes, verbose)
             self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf, verbose)
             self.colorize_connections(currently_active_connections, verbose)
