@@ -517,8 +517,6 @@ class NoCPlotter:
         self.create_fig()
         self.plot_connections()
         self.annotate_points()
-        # create_faces()
-        # plot_faces()
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
         self._init() #init for blitting
@@ -604,7 +602,7 @@ class NoCTimelinePlotter(NoCPlotter):
             print(f"Traffic events: {events['traf']}")
             print()
 
-    def plot_timeline(self):
+    def plot_timeline(self, filename):
         """Draw horizontal bars for events."""
         
         for node, events in self.node_events.items():
@@ -639,9 +637,9 @@ class NoCTimelinePlotter(NoCPlotter):
         for node in range(len(self.points[1])):
             self.ax2d.axhline(y=node - 0.4, color='grey', linestyle='--', linewidth=0.5)
             self.ax2d.axhline(y=node + 0.4, color='grey', linestyle='--', linewidth=0.5)
-        
 
-
+        if filename: 
+            self.fig.savefig(filename, dpi=300)
 
 
 

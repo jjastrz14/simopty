@@ -166,7 +166,7 @@ if __name__ == "__main__":
     print("Plotting timeline...")
     # Generate 2D timeline
     plotter_timeline.setup_timeline(logger, path_data)
-    plotter_timeline.plot_timeline()
+    plotter_timeline.plot_timeline(timeline_path)
     #plotter._print_node_events()
         
     # for event in logger.events:
