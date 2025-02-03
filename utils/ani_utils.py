@@ -25,13 +25,15 @@ import numpy as np
 import json
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-PATH_TO_SIMULATOR = os.path.join("/home/jjastrzebski/Projects/restart", "lib")
+base_path = os.path.expanduser("~/Projects/restart/lib")
+if not os.path.exists(base_path):
+    raise FileNotFoundError(f"The required library path does not exist: {base_path}. Please update the PATH_TO_SIMULATOR variable with the correct path.")
+PATH_TO_SIMULATOR = base_path
 sys.path.append(PATH_TO_SIMULATOR)
 import nocsim
-
 
 class NoCPlotter:
 
@@ -43,6 +45,7 @@ class NoCPlotter:
         self.points = {} # List of the nodes/points
         self.points[0] = []  # NoC elements
         self.points[1] = []  # NPUs
+        self.points[2] = []  # NVMs (for future use)
         self.artists_points = {} # List of the artists for the points
         self.artists_points[0] = [] 
         self.artists_points[1] = []
@@ -53,6 +56,9 @@ class NoCPlotter:
         self.num_of_layers = 0
         self.layers = [] # list of the layers
         self.faces = [] # List of the faces, for drawing reasons
+        
+        # artists for 3D blitting
+        self.artists = []
 
     def init(self, config_file):
         """
@@ -130,11 +136,7 @@ class NoCPlotter:
                 if not pcheck:
                     self.connections.append(sorted_connection)
         
-
-        
     ###############################################################################
-
-
     def create_fig(self):
         """
         Create the figure object
@@ -149,77 +151,80 @@ class NoCPlotter:
         self.ax.set_zlabel('Z')
     ###############################################################################
 
-    def vertical_connection(self, p1_ix, p2_ix):
-        """
-        Draws the vertical connection of the points
-        """
-        x = []
-        y = []
-        z = []
-
-        x.append(self.points[0][p1_ix][0])
-        x.append(self.points[1][p2_ix][0])
-
-        y.append(self.points[0][p1_ix][1])
-        y.append(self.points[1][p2_ix][1])
-
-        z.append(self.points[0][p1_ix][2])
-        z.append(self.points[1][p2_ix][2])
-
-        artist, = self.ax.plot(x, y, z, color='black', alpha = 0.3)
-        self.artists_vconnections[(p1_ix, p2_ix)] = artist
-
-
-    def horizontal_connection(self, p1_ix, p2_ix, in_plane):
-        """
-        Draws the horizontal connection of the points
-        """
-        x = []
-        y = []
-        z = []
-    
-        if in_plane == 0:
-            x.append(self.points[0][p1_ix][0])
-            x.append(self.points[0][p2_ix][0])
-
-            y.append(self.points[0][p1_ix][1])
-            y.append(self.points[0][p2_ix][1])
-
-            z.append(self.points[0][p1_ix][2])
-            z.append(self.points[0][p2_ix][2])
-
-            # plot only if the connection has not been plotted yet
-            artist, = self.ax.plot(x, y, z, color='black', alpha = 0.3)
-            self.artists_hconnections[(p1_ix, p2_ix)] = artist
-
-        else:
-            # if the in_plane flag is 0 (this can only happen in the torus topology)
-            # this means that the considered connection is a wrap-around connection:
-            # we represent this by drawing a line from the two points to the border of the mesh
-
-            border = 0.5
-
-            segment1 = [(self.points[0][p1_ix][0], self.points[0][p1_ix][1], self.points[0][p1_ix][2]), (self.points[0][p1_ix][0] + (- border if in_plane == 1 else border if in_plane == 2 else 0), self.points[0][p1_ix][1] + (-border if in_plane == 3 else  border if in_plane == 4 else 0), self.points[0][p1_ix][2])]
-            segment2 = [(self.points[0][p2_ix][0], self.points[0][p2_ix][1], self.points[0][p2_ix][2]), (self.points[0][p2_ix][0] + ( border if in_plane == 1 else - border if in_plane == 2 else 0), self.points[0][p2_ix][1] + (border if in_plane == 3 else - border if in_plane == 4 else 0), self.points[0][p2_ix][2])]
-
-            artist1, = self.ax.plot([segment1[0][0], segment1[1][0]], [segment1[0][1], segment1[1][1]], [segment1[0][2], segment1[1][2]], color='black', alpha = 0.4)
-            artist2, = self.ax.plot([segment2[0][0], segment2[1][0]], [segment2[0][1], segment2[1][1]], [segment2[0][2], segment2[1][2]], color='black', alpha = 0.4)
-
-            self.artists_hconnections[(p1_ix, p2_ix)] = [artist1, artist2]
-
-
     def plot_connections(self):
         """
-        Plot the connections between the nodes/points
+        Plot all the connections (vertical and horizontal) as a single Line3DCollection.
         """
+        segments = []  # Each segment is a list of two (x, y, z) tuples.
+        colors   = []  # Color (with alpha) for each segment.
+
+        # Vertical connections: connect corresponding points in points[0] and points[1]
         for p in range(len(self.points[0])):
-            self.vertical_connection(p, p)
+            top = self.points[0][p]
+            bottom = self.points[1][p]
+            segments.append([top, bottom])
+            colors.append((0, 0, 0, 0.3))  # black with alpha=0.3
 
-        for c in self.connections:
-            p1_ix, p2_ix = c[0]
-            in_plane= c[1]
+        # Horizontal connections:
+        for connection in self.connections:
+            (p1_ix, p2_ix), in_plane = connection
 
-            self.horizontal_connection(p1_ix, p2_ix, in_plane)
+            if in_plane == 0:
+                # A standard horizontal connection within the same plane.
+                p1 = self.points[0][p1_ix]
+                p2 = self.points[0][p2_ix]
+                segments.append([p1, p2])
+                colors.append((0, 0, 0, 0.3))
+            else:
+                # A wrap-around connection, where we split the connection into two segments.
+                # border is fixed
+                border = 0.5
+                p1 = self.points[0][p1_ix]
+                p2 = self.points[0][p2_ix]
+
+                # Determine the offset for the first segment (from p1 to the border)
+                if in_plane == 1:
+                    offset1 = (-border, 0, 0)
+                elif in_plane == 2:
+                    offset1 = (border, 0, 0)
+                elif in_plane == 3:
+                    offset1 = (0, -border, 0)
+                elif in_plane == 4:
+                    offset1 = (0, border, 0)
+                else:
+                    offset1 = (0, 0, 0)  # Should not happen
+
+                p1_border = (p1[0] + offset1[0],
+                            p1[1] + offset1[1],
+                            p1[2] + offset1[2])
+
+                # For p2 we use the opposite offset so that the two segments point to the same border.
+                if in_plane == 1:
+                    offset2 = (border, 0, 0)
+                elif in_plane == 2:
+                    offset2 = (-border, 0, 0)
+                elif in_plane == 3:
+                    offset2 = (0, border, 0)
+                elif in_plane == 4:
+                    offset2 = (0, -border, 0)
+                else:
+                    offset2 = (0, 0, 0)
+
+                p2_border = (p2[0] + offset2[0],
+                            p2[1] + offset2[1],
+                            p2[2] + offset2[2])
+
+                segments.append([p1, p1_border])
+                segments.append([p2, p2_border])
+                colors.append((0, 0, 0, 0.4))
+                colors.append((0, 0, 0, 0.4))
+
+        # Create the 3D line collection with all segments and add it to the axes.
+        self.connection_lines = Line3DCollection(segments, colors=colors, linewidths=1)
+        self.ax.add_collection(self.connection_lines)
+        # for animation
+        self.artists.append(self.connection_lines)
+
     ###############################################################################
 
 
@@ -235,97 +240,44 @@ class NoCPlotter:
 
     def plot_nodes(self, points):
         """
-        Annotating the points (NoC Nodes)using their index
+        Annotating the points (NoC Nodes) using their index
         """
-        points_coordinates = []
-        for p in points:
-            points_coordinates.append(p)
-            x = p[0]
-            y = p[1]
-            z = p[2]
-            artist, = self.ax.plot(x, y, z, color = "lightseagreen", marker="o", markersize=10, alpha = 0.3)
-            self.artists_points[0].append(artist)
-        # points_coordinates = np.array(points_coordinates)
-        # xs = points_coordinates[:, 0]
-        # ys = points_coordinates[:, 1]
-        # zs = points_coordinates[:, 2]
-        # self.artists_points[0].append(self.ax.scatter(xs, ys, zs,color = "lightseagreen", s = 200, alpha = 0.3))#, marker=m)
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        zs = [p[2] for p in points]
+        
+        self.node_dots = self.ax.scatter(
+            xs, ys, zs, 
+            color="lightseagreen", 
+            s=100, 
+            alpha=0.3,
+            marker="o"
+        )
+        self.artists.append(self.node_dots)
 
 
     def plot_pes(self, points):
-        """
-        Annotating the points (PEs) using their index
-        """
-        points_coordinates = []
-        for p in points:
-            points_coordinates.append(p)
-            x = p[0]
-            y = p[1]
-            z = p[2]
-            artist, = self.ax.plot(x, y, z, color = "tomato", marker="s", markersize=10, alpha = 0.3)
-            self.artists_points[1].append(artist)
-        # points_coordinates = np.array(points_coordinates)
-        # xs = points_coordinates[:, 0]
-        # ys = points_coordinates[:, 1]
-        # zs = points_coordinates[:, 2]
-        # self.artists_points[1].append(self.ax.scatter(xs, ys, zs,color = "tomato" , s = 200, marker="s", alpha = 0.3)) 
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        zs = [p[2] for p in points]
+        
+        self.pe_comp_dots = self.ax.scatter(
+            [], [], [],  # Empty initially
+            color="tomato", 
+            s=100, 
+            alpha=0.3,
+            marker="s"
+        )
+        self.pe_traf_dots = self.ax.scatter(
+            [], [], [],
+            color="khaki",
+            s=100,
+            alpha=0.8,
+            marker="D"
+        )
+        self.artists.extend([self.pe_comp_dots, self.pe_traf_dots])
     ###############################################################################
 
-    def colorize_nodes(self, currently_active:set, verbose:bool = False):
-        """
-        Colorize the nodes
-        """
-        if verbose:
-            print("Currently active nodes: ", currently_active)
-        for i in range(len(self.points[0])):
-            if i in currently_active:
-                self.artists_points[0][i].set_alpha(1)
-            else:
-                self.artists_points[0][i].set_alpha(0.3)
-
-                
-    def colorize_pes(self, currently_active_comp:set, currently_active_traf:set, verbose: bool = False):
-        """
-        Colorize the PEs
-        """
-        if verbose:
-            print("Currently active PEs for computation: ", currently_active_comp)
-            print("Currently active PEs for traffic: ", currently_active_traf)
-        for i in range(len(self.points[1])):
-            if i in currently_active_comp:
-                self.artists_points[1][i].set_color("tomato")
-                self.artists_points[1][i].set_alpha(1)
-            elif i in currently_active_traf:
-                self.artists_points[1][i].set_color("khaki")
-                self.artists_points[1][i].set_alpha(0.8)
-            else:
-                self.artists_points[1][i].set_color("tomato")
-                self.artists_points[1][i].set_alpha(0.3)
-
-    def colorize_connections(self, currently_active:set, verbose: bool = False):
-        """
-        Colorize the connections
-        """
-        if verbose:
-            print("Currently active connections: ", currently_active)
-        for c in self.connections:
-            to_check = self.artists_vconnections if c[0][0] == c[0][1] else self.artists_hconnections
-            if c[0] in currently_active:
-                if isinstance(to_check[c[0]], list):
-                    for a in to_check[c[0]]:
-                        a.set_alpha(1)
-                else:
-                    to_check[c[0]].set_alpha(1) 
-            else:
-                if isinstance(to_check[c[0]], list):
-                    for a in to_check[c[0]]:
-                        a.set_alpha(0.3)
-                        
-                else:
-                    to_check[c[0]].set_alpha(0.3)
-    
-
-    ###############################################################################
     def create_faces(self):
         """
         Create the faces of the mesh, each layer will become a face
@@ -390,6 +342,18 @@ class NoCPlotter:
         poly.set_facecolors(faces_colors)
         self.ax.add_collection3d(poly)
     ###############################################################################
+    
+    def _init(self):
+        """Initialize blitting - draw static elements once"""
+        self.timeStamp = self.ax.text(
+            0.5, 0.9, 0.5, 
+            "", 
+            transform=self.ax.transAxes,
+            ha = 'center')
+        self.artists.append(self.timeStamp)
+        
+        return self.artists  
+            
 
     def gen_activity_animation(self, logger, pause: float = 0.5, file_name: Union[str, None] = None, verbose: bool = False):
         """
@@ -403,88 +367,121 @@ class NoCPlotter:
         Returns:
         - None
         """
-
+        
         anti_events_map = { nocsim.EventType.IN_TRAFFIC : nocsim.EventType.OUT_TRAFFIC,
                             nocsim.EventType.END_COMPUTATION : nocsim.EventType.START_COMPUTATION,
-                            nocsim.EventType.END_SIMULATION : nocsim.EventType.START_SIMULATION}
-
-        self.timeStamp = self.ax.text(0, 0, 0.5, 0, size=12, color='red')
+                            nocsim.EventType.END_SIMULATION : nocsim.EventType.START_SIMULATION
+                            }
         cycles = logger.events[-1].cycle
+
+        # ===== Precomputation Loop =====
+        event_activations = []
         events_pointer = 0 # pointer to the events in the logger
         current_events = set() # set of the current events
 
-        def _update_graph(cycle):
-            """
-            Update the graph at each cycle
-            """
-            nonlocal events_pointer, current_events, anti_events_map, verbose
-            if verbose:
-                print(f"--- Cycle: {cycle} ---")
-                print(f"Events pointer: {events_pointer}")
-            #for each cycle, compare it with the starting cycle of the event
-            while cycle >= logger.events[events_pointer].cycle:
-                if (logger.events[events_pointer].type in anti_events_map.values()):
-                        current_events.add(events_pointer)
-                        events_pointer += 1
+        for cycle in range(cycles + 1):
+            #loop to filer events that are active at the current cycle
+            while events_pointer < len(logger.events):
+                current_event = logger.events[events_pointer]
+                
+                if current_event.cycle > cycle:
+                    break  # Stop when future events
+                
+                if current_event.type in anti_events_map.values():
+                    current_events.add(events_pointer)
+                    events_pointer += 1
                 else:
-                    # find the event in the current events and remove it
-                    event_type = anti_events_map[logger.events[events_pointer].type]
-                    additional_info = logger.events[events_pointer].additional_info
-                    ctype = logger.events[events_pointer].ctype
-                    event_to_remove = []
-                    for event in current_events:
-                        if (logger.events[event].type == event_type and
-                            logger.events[event].additional_info == additional_info and
-                            logger.events[event].ctype == ctype):
-                            
-                            assert logger.events[event].cycle <= logger.events[events_pointer].cycle
-                            # remove the event from the current events
-                            event_to_remove.append(event)
+                    # Find matching start event
+                    event_to_remove = None
+                    for ev in current_events:
+                        if (logger.events[ev].type == anti_events_map[current_event.type] and
+                            logger.events[ev].additional_info == current_event.additional_info and
+                            logger.events[ev].ctype == current_event.ctype):
+                            event_to_remove = ev
                             break
-                     
-                    if len(event_to_remove) == 0:
-                        raise RuntimeError(f"Event {events_pointer} not found in the current events")
-                    for event in event_to_remove:
-                        current_events.remove(event)
-                    events_pointer += 1       
+                    
+                    if event_to_remove is not None:
+                        current_events.remove(event_to_remove)
+                    events_pointer += 1
 
-
-            # loop over the current events and update the graph
-            currently_active_nodes = set()
-            currently_active_pes_comp = set()
-            currently_active_pes_traf = set()
-            currently_active_connections = set()
-            for event in current_events:
-                if logger.events[event].type == nocsim.EventType.OUT_TRAFFIC:
+            # ----- Calculate active elements -----
+            active_nodes = set()
+            active_conns = set()
+            active_pes_comp = set()
+            active_pes_traf = set()
+            
+            #loop to collect data of the events
+            for event_idx in current_events:
+                
+                event = logger.events[event_idx]
+                
+                if event.type == nocsim.EventType.OUT_TRAFFIC:
                     # check what type of channel is active at the moment
-                    hystory = logger.events[event].info.history
-                    for h in hystory:
+                    for h in event.info.history:
                         # find the h element such that h[3]>= cycle and h4 <= cycle
                         if h.start <= cycle and h.end > cycle:
-                            currently_active_connections.add(tuple(sorted([h.rsource, h.rsink])))
-                            currently_active_nodes.add(h.rsource)
-                            currently_active_nodes.add(h.rsink)
+                            connection = tuple(sorted([h.rsource, h.rsink]))
+                            active_conns.add(connection)
+                            active_nodes.update([h.rsource, h.rsink])
                             if h.rsource == h.rsink:
-                                currently_active_pes_traf.add(h.rsource)
+                                active_pes_traf.add(h.rsource)
                             break
                         elif h.start > cycle:
                             # the connection is not active, the packet is still being processed by the source
-                            currently_active_nodes.add(h.rsource)
+                            active_nodes.add(h.rsource)
                             break   
 
-                elif logger.events[event].type == nocsim.EventType.START_COMPUTATION:
-                    currently_active_pes_comp.add(logger.events[event].info.node)
+                elif event.type == nocsim.EventType.START_COMPUTATION:
+                    active_pes_comp.add(event.info.node)
+                    
+            event_activations.append((active_nodes, active_conns, active_pes_comp, active_pes_traf))
+                
+        def _update_graph(cycle):
+            """Optimized update function using precomputed data and blitting"""
+            # Get precomputed data for this cycle
+            active_nodes, active_conns, pes_comp, pes_traf = event_activations[cycle]
+            
+            # Update NoC nodes (array-based)
+            node_alphas = np.full(len(self.points[0]), 0.3)  # Default alpha
+            node_alphas[list(active_nodes)] = 1.0
+            self.node_dots.set_alpha(node_alphas)
+            
+            self.connection_lines.set_alpha(1.0)
 
-            self.colorize_nodes(currently_active_nodes, verbose)
-            self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf, verbose)
-            self.colorize_connections(currently_active_connections, verbose)
+            # Update PE markers (computation vs traffic)
+            if pes_comp:
+                comp_coords = np.array([self.points[1][idx] for idx in pes_comp])
+                # comp_coords should have shape (N, 3) if not empty
+                self.pe_comp_dots.set_offsets(comp_coords[:, :2])  # X,Y only for 3D
+                self.pe_comp_dots.set_3d_properties(comp_coords[:, 2], 'z')  # Z-axis
+            else:
+                # Pass an empty 2D array with shape (0, 2) if no data exists
+                self.pe_comp_dots.set_offsets(np.empty((0, 2)))
+            
+            # For traffic dots:
+            if pes_traf:
+                traf_coords = np.array([self.points[1][idx] for idx in pes_traf])
+                self.pe_traf_dots.set_offsets(traf_coords[:, :2])
+                self.pe_traf_dots.set_3d_properties(traf_coords[:, 2], 'z')
+            else:
+                self.pe_traf_dots.set_offsets(np.empty((0, 2)))
+            
+            # Update cycle counter text
             self.timeStamp.set_text(f"Cycle: {cycle}")
+            
+            # Return ALL modified artists (critical for blitting)
+            return [
+                self.node_dots,
+                self.connection_lines,
+                self.pe_comp_dots,
+                self.pe_traf_dots,
+                self.timeStamp
+            ]
 
-            plt.draw()
         # Crea l'animazione utilizzando FuncAnimation
         ani = FuncAnimation(self.fig, 
                             _update_graph,
-                            init_func = _init, 
+                            init_func = self._init, 
                             blit = True, #to speed up the animation
                             frames=range(cycles), 
                             repeat=False, 
@@ -524,6 +521,7 @@ class NoCPlotter:
         # plot_faces()
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
+        self._init() #init for blitting
         self.gen_activity_animation(logger, pause, file_name, verbose = False)
         #plt.show()
     ###############################################################################
