@@ -28,6 +28,7 @@ from utils.ani_utils import *
 import tensorflow.keras as keras
 import tensorflow.keras.layers as layers
 from tensorflow.keras.utils import plot_model
+import time
 import nocsim
 
 def test_model(input_shape):
@@ -156,8 +157,11 @@ if __name__ == "__main__":
     gif_path = "visual/test.gif"
     timeline_path = "visual/test.png"
     
+    start_time = time.time()
     print("Plotting 3D animation...")
     plotter_3d_animation.plot(logger, frames, path_data, gif_path)  # Original 3D plot
+    end_time = time.time()
+    
     print("Plotting timeline...")
     # Generate 2D timeline
     plotter_timeline.setup_timeline(logger, path_data)
