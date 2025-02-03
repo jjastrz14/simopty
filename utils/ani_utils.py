@@ -22,10 +22,11 @@ from typing import Union
 import sys
 import os
 import numpy as np
+from collections import defaultdict
 import json
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection, LineCollection
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 base_path = os.path.expanduser("~/Projects/restart/lib")
@@ -56,6 +57,7 @@ class NoCPlotter:
         self.num_of_layers = 0
         self.layers = [] # list of the layers
         self.faces = [] # List of the faces, for drawing reasons
+    
 
     def init(self, config_file):
         """
@@ -146,6 +148,7 @@ class NoCPlotter:
         self.ax.set_xlabel('X')
         self.ax.set_ylabel('Y')
         self.ax.set_zlabel('Z')
+        self.timeStamp = self.ax.text(0, 0, 0.5, "Cycle: 0", size=12, color='red')
     ###############################################################################
 
     def vertical_connection(self, p1_ix, p2_ix):
@@ -216,18 +219,47 @@ class NoCPlotter:
 
 
     def plot_connections(self):
-        """
-        Plot the connections between the nodes/points
-        """
-        for p in range(len(self.points[0])):
-            self.vertical_connection(p, p)
-
-        for c in self.connections:
-            p1_ix, p2_ix = c[0]
-            in_plane= c[1]
-
-            self.horizontal_connection(p1_ix, p2_ix, in_plane)
-    ###############################################################################
+        segments = []
+        self.connection_indices = defaultdict(list)  # Maps (node_pair) -> segment indices
+        
+        # Rebuild coordinates the same way as original connection plotting
+        for idx, conn in enumerate(self.connections):
+            # conn should be in format: 
+            # (connection_type, (node1, node2), [connection_specific_params])
+            conn_type = conn[0]
+            node_pair = tuple(sorted(conn[1]))
+            p1_ix, p2_ix = conn[1]
+            
+            # Regenerate coordinates using your original connection logic
+            if conn_type == "vertical":
+                # Get coordinates from your original vertical connection logic
+                x = self.points[0][p1_ix][0]  # X from router point
+                y_start = self.points[0][p1_ix][1]
+                y_end = self.points[0][p2_ix][1]
+                segments.append([(x, y_start), (x, y_end)])
+                
+            elif conn_type == "horizontal":
+                # Get coordinates from your original horizontal connection logic
+                plane = conn[2]  # in_plane parameter
+                y = self.points[0][p1_ix][1] + (0.1 if plane else -0.1)
+                x_start = self.points[0][p1_ix][0]
+                x_end = self.points[0][p2_ix][0]
+                segments.append([(x_start, y), (x_end, y)])
+            
+            # Store mapping from logical connection to segment index
+            self.connection_indices[node_pair].append(idx)
+        
+        # Create LineCollection with proper coordinates
+        self.connection_colors = np.zeros((len(segments), 4))
+        self.connection_colors[:, 3] = 0.3  # Default alpha
+        self.line_collection = LineCollection(
+            segments,
+            colors=self.connection_colors,
+            linewidths=2
+        )
+        self.ax.add_collection(self.line_collection)
+        
+    #########################
 
 
     def annotate_points(self):
@@ -241,92 +273,51 @@ class NoCPlotter:
             i = i + 1
 
     def plot_nodes(self, points):
-        """
-        Annotating the points (NoC Nodes) using their index
-        """
-        points_coordinates = []
-        for p in points:
-            points_coordinates.append(p)
-            x = p[0]
-            y = p[1]
-            z = p[2]
-            artist, = self.ax.plot(x, y, z, color = "lightseagreen", marker="o", markersize=10, alpha = 0.3)
-            self.artists_points[0].append(artist)
-        # points_coordinates = np.array(points_coordinates)
-        # xs = points_coordinates[:, 0]
-        # ys = points_coordinates[:, 1]
-        # zs = points_coordinates[:, 2]
-        # self.artists_points[0].append(self.ax.scatter(xs, ys, zs,color = "lightseagreen", s = 200, alpha = 0.3))#, marker=m)
+        x = [p[0] for p in points]
+        y = [p[1] for p in points]
+        self.node_colors = np.zeros((len(points), 4))
+        self.node_colors[:] = (*plt.cm.Blues(0.6)[:3], 0.3)
+        self.scatter_nodes = self.ax.scatter(x, y, s=100, color=self.node_colors)
 
 
     def plot_pes(self, points):
-        """
-        Annotating the points (PEs) using their index
-        """
-        points_coordinates = []
-        for p in points:
-            points_coordinates.append(p)
-            x = p[0]
-            y = p[1]
-            z = p[2]
-            artist, = self.ax.plot(x, y, z, color = "tomato", marker="s", markersize=10, alpha = 0.3)
-            self.artists_points[1].append(artist)
-        # points_coordinates = np.array(points_coordinates)
-        # xs = points_coordinates[:, 0]
-        # ys = points_coordinates[:, 1]
-        # zs = points_coordinates[:, 2]
-        # self.artists_points[1].append(self.ax.scatter(xs, ys, zs,color = "tomato" , s = 200, marker="s", alpha = 0.3)) 
+        x = [p[0] for p in points]
+        y = [p[1] for p in points]
+        self.pe_colors = np.zeros((len(points), 4))
+        self.pe_colors[:] = np.array([*plt.cm.Reds(0.6)[:3], 0.3])
+        self.scatter_pes = self.ax.scatter(x, y, s=100, color=self.pe_colors)
     ###############################################################################
 
     def colorize_nodes(self, currently_active:set, verbose:bool = False):
         """
         Colorize the nodes
         """
-        if verbose:
-            print("Currently active nodes: ", currently_active)
-        for i in range(len(self.points[0])):
-            target_alpha = 1 if i in currently_active else 0.3
-            if self.artists_points[0][i].get_alpha() != target_alpha:
-                self.artists_points[0][i].set_alpha(target_alpha)
+        alphas = np.full(len(self.node_colors), 0.3)
+        alphas[list(currently_active)] = 1.0
+        self.node_colors[:, 3] = alphas
+        self.scatter_nodes.set_facecolors(self.node_colors)
 
                 
-    def colorize_pes(self, currently_active_comp:set, currently_active_traf:set, verbose: bool = False):
-        """
-        Colorize the PEs
-        """
-        if verbose:
-            print("Currently active PEs for computation: ", currently_active_comp)
-            print("Currently active PEs for traffic: ", currently_active_traf)
-        for i in range(len(self.points[1])):
-            if i in currently_active_comp:
-                if self.artists_points[1][i].get_color() != "tomato" or self.artists_points[1][i].get_alpha() != 1:
-                    self.artists_points[1][i].set_color("tomato")
-                    self.artists_points[1][i].set_alpha(1)
-            elif i in currently_active_traf:
-                if self.artists_points[1][i].get_color() != "khaki" or self.artists_points[1][i].get_alpha() != 0.8:
-                    self.artists_points[1][i].set_color("khaki")
-                    self.artists_points[1][i].set_alpha(0.8)
-            else:
-                if self.artists_points[1][i].get_color() != "tomato" or self.artists_points[1][i].get_alpha() != 0.3:
-                    self.artists_points[1][i].set_color("tomato")
-                    self.artists_points[1][i].set_alpha(0.3)
-
-    def colorize_connections(self, currently_active:set, verbose: bool = False):
-        """
-        Colorize the connections
-        """
-        if verbose:
-            print("Currently active connections: ", currently_active)
-        for c in self.connections:
-            to_check = self.artists_vconnections if c[0][0] == c[0][1] else self.artists_hconnections
-            target_alpha = 1 if c[0] in currently_active else 0.3
-            if isinstance(to_check[c[0]], list):
-                for a in to_check[c[0]]:
-                    if a.get_alpha() != target_alpha:
-                        a.set_alpha(target_alpha)
-            else:
-                if to_check[c[0]].get_alpha() != target_alpha:
-                    to_check[c[0]].set_alpha(target_alpha)
+    def colorize_pes(self, active_comp, active_traf):
+        # Reset to default
+        self.pe_colors[:] = np.array([*plt.cm.Reds(0.6)[:3], 0.3])
+        # Active computation
+        self.pe_colors[list(active_comp), 3] = 1.0
+        # Active traffic
+        self.pe_colors[list(active_traf), :3] = plt.cm.YlOrBr(0.6)[:3] 
+        self.pe_colors[list(active_traf), 3] = 0.8
+        self.scatter_pes.set_facecolors(self.pe_colors)
+            
+    def colorize_connections(self, currently_active):
+        active_indices = []
+        for conn in currently_active:
+            # Get all segment indices for this logical connection
+            active_indices.extend(self.connection_indices.get(conn, []))
+        # Update alphas
+        self.connection_colors[:, 3] = 0.3
+        if active_indices:
+            self.connection_colors[active_indices, 3] = 1.0
+        self.line_collection.set_colors(self.connection_colors)
 
     ###############################################################################
     def create_faces(self):
@@ -392,95 +383,76 @@ class NoCPlotter:
                 faces_colors.append('#%02x%02x%02x' % color)
         poly.set_facecolors(faces_colors)
         self.ax.add_collection3d(poly)
+        
     ###############################################################################
+    
+    def precompute_activity(self, logger):
+        max_cycle = logger.events[-1].cycle
+        self.activity_data = [{'nodes': set(), 'pes_comp': set(), 'pes_traf': set(), 'connections': set()} for _ in range(max_cycle + 1)]
+        
+        pending_comp = {}  # (additional_info, ctype) -> (start_cycle, node)
+        pending_traffic = {}  # (additional_info, ctype) -> (start_cycle, info)
+
+        for event in logger.events:
+            if event.type == nocsim.EventType.START_COMPUTATION:
+                key = (event.additional_info, event.ctype)
+                pending_comp[key] = (event.cycle, event.info.node)
+                
+            elif event.type == nocsim.EventType.END_COMPUTATION:
+                key = (event.additional_info, event.ctype)
+                if key in pending_comp:
+                    start_cycle, node = pending_comp.pop(key)
+                    for cycle in range(start_cycle, event.cycle):
+                        if cycle <= max_cycle:
+                            self.activity_data[cycle]['pes_comp'].add(node)
+                            
+            elif event.type == nocsim.EventType.OUT_TRAFFIC:
+                key = (event.additional_info, event.ctype)
+                pending_traffic[key] = (event.cycle, event.info)
+                
+            elif event.type == nocsim.EventType.IN_TRAFFIC:
+                
+                key = (event.additional_info, event.ctype)
+                if key in pending_traffic:
+                    start_cycle, info = pending_traffic.pop(key)
+                    for cycle in range(start_cycle, event.cycle):
+                        if cycle > max_cycle:
+                            continue
+                        active_in_source = True
+                        for h in info.history:
+                            if h.start <= cycle < h.end:
+                                conn = tuple(sorted([h.rsource, h.rsink]))
+                                self.activity_data[cycle]['connections'].add(conn)
+                                self.activity_data[cycle]['nodes'].update([h.rsource, h.rsink])
+                                if h.rsource == h.rsink:
+                                    self.activity_data[cycle]['pes_traf'].add(h.rsource)
+                                active_in_source = False
+                                break
+                            elif h.start > cycle:
+                                break
+                        if active_in_source:
+                            self.activity_data[cycle]['nodes'].add(info.source)
 
     def gen_activity_animation(self, logger, pause: float = 0.5, file_name: Union[str, None] = None, verbose: bool = False):
-        """
-        The function takes as input a logger object (defined in the nocsim module, exposed in restart). This is used as a chonological timeline
-        on which the events that happen on NoC are registered. We unroll this timeline and plot it in a matplotlib animation
-
-        Args:
-        - logger: nocsim.EventLogger object
-        - fine_name: a string, 
-
-        Returns:
-        - None
-        """
-
-        anti_events_map = { nocsim.EventType.IN_TRAFFIC : nocsim.EventType.OUT_TRAFFIC,
-                            nocsim.EventType.END_COMPUTATION : nocsim.EventType.START_COMPUTATION,
-                            nocsim.EventType.END_SIMULATION : nocsim.EventType.START_SIMULATION}
-
-        self.timeStamp = self.ax.text(0, 0, 0.5, 0, size=12, color='red')
-        cycles = logger.events[-1].cycle
-        events_pointer = 0 # pointer to the events in the logger
-        current_events = set() # set of the current events
+        
+        self.precompute_activity(logger)
+        cycles = len(self.activity_data)
 
         def _update_graph(cycle):
-            nonlocal events_pointer, current_events
-            
-            # Process events for current cycle
-            while events_pointer < len(logger.events) and cycle >= logger.events[events_pointer].cycle:
-                event = logger.events[events_pointer]
-                if event.type in anti_events_map.values():
-                    current_events.add(events_pointer)
-                else:
-                    # Find and remove matching event
-                    event_type = anti_events_map[event.type]
-                    additional_info = event.additional_info
-                    ctype = event.ctype
-                    to_remove = next(
-                        (e for e in current_events 
-                        if logger.events[e].type == event_type 
-                        and logger.events[e].additional_info == additional_info 
-                        and logger.events[e].ctype == ctype),
-                        None
-                    )
-                    if to_remove is not None:
-                        current_events.remove(to_remove)
-                events_pointer += 1
-
-            # Prepare sets for active elements
-            currently_active_nodes = set()
-            currently_active_pes_comp = set()
-            currently_active_pes_traf = set()
-            currently_active_connections = set()
-
-            # Single pass through current events to collect all active elements
-            for event_idx in current_events:
-                event = logger.events[event_idx]
-                if event.type == nocsim.EventType.OUT_TRAFFIC:
-                    for h in event.info.history:
-                        if h.start <= cycle and h.end > cycle:
-                            currently_active_nodes.add(h.rsource)
-                            currently_active_nodes.add(h.rsink)
-                            currently_active_connections.add(tuple(sorted([h.rsource, h.rsink])))
-                            if h.rsource == h.rsink:
-                                currently_active_pes_traf.add(h.rsource)
-                            break
-                        elif h.start > cycle:
-                            currently_active_nodes.add(h.rsource)
-                            break
-                elif event.type == nocsim.EventType.START_COMPUTATION:
-                    currently_active_pes_comp.add(event.info.node)
-
-            # Update visualization only where needed
-            self.colorize_nodes(currently_active_nodes, verbose)
-            self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf, verbose)
-            self.colorize_connections(currently_active_connections, verbose)
+            data = self.activity_data[cycle]
+            self.colorize_nodes(data['nodes'])
+            self.colorize_pes(data['pes_comp'], data['pes_traf'])
+            self.colorize_connections(data['connections'])
             self.timeStamp.set_text(f"Cycle: {cycle}")
+            return [self.scatter_nodes, self.scatter_pes, self.line_collection, self.timeStamp]
 
-            #plt.draw()
-        # Crea l'animazione utilizzando FuncAnimation
-        ani = FuncAnimation(self.fig, 
-                            _update_graph,
-                            #blit = True, #to speed up the animation
-                            frames=range(cycles), 
-                            repeat=False, 
+        ani = FuncAnimation(fig = self.fig, 
+                            func = _update_graph,
+                            blit = True, #to speed up the animation
+                            frames = range(cycles), 
+                            repeat = False, 
                             interval=pause*100
                             )
-
-        # Salva l'animazione se file_name è specificato
         if file_name:
             ani.save(file_name, 
                      writer='pillow', 
@@ -488,8 +460,6 @@ class NoCPlotter:
                      savefig_kwargs={'facecolor': 'white'},
                      dpi=100
                      )
-
-        #plt.show()
             
     ###############################################################################
 
