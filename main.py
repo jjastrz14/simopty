@@ -30,6 +30,7 @@ import tensorflow.keras.layers as layers
 from tensorflow.keras.utils import plot_model
 import time
 import nocsim
+import time
 
 def test_model(input_shape):
     
@@ -96,6 +97,10 @@ if __name__ == "__main__":
     # # # # model = load_model("ResNet50")
     # # # # model = load_model("MobileNet")
     # # # # model = load_model("MobileNetV2")
+    # model = test_model((28, 28, 1))
+    # # # # model = load_model("ResNet50")
+    # # # # model = load_model("MobileNet")
+    # # # # model = load_model("MobileNetV2")
 
     # model.summary()
     # plot_model(model, to_file="visual/model.png", show_shapes=True)
@@ -113,7 +118,7 @@ if __name__ == "__main__":
     #     n_ants = 100,
     #     rho = 0.05,
     #     n_best = 20,
-    #     n_iterations = 10,
+    #     n_iterations = 3,
     #     alpha = 1.,
     #     beta = 1.2,
     # )
@@ -129,9 +134,9 @@ if __name__ == "__main__":
     # print(opt.path_length(shortest[1], verbose = True))
     # opt.save_path_json(shortest[1], SAVE_DATA_DIR + "/all_time_shortest_path.json")
             
-    # Load the statistics and plot the results
-    # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
-    # print(stats)
+    # # Load the statistics and plot the results
+    # # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
+    # # print(stats)
 
     # Create a SimulatorStub object
     stub = ss.SimulatorStub(EX_DIR)
@@ -143,8 +148,8 @@ if __name__ == "__main__":
     #results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
 
     #path to save the data
-    path_data = SAVE_DATA_DIR + "/all_time_shortest_path.json"
-    #path_data = "config_files/runs/test_run5.json"
+    #path_data = SAVE_DATA_DIR + "/all_time_shortest_path.json"
+    path_data = "config_files/runs/test_run5.json"
     results, logger = stub.run_simulation(path_data, verbose = True)
     print(results)
     
@@ -152,7 +157,7 @@ if __name__ == "__main__":
     plotter_3d_animation = NoCPlotter()
     plotter_timeline = NoCTimelinePlotter()
     
-    frames = 0.1
+    frames = 0.5
     #paths
     gif_path = "visual/test.gif"
     timeline_path = "visual/test.png"
@@ -162,11 +167,11 @@ if __name__ == "__main__":
     plotter_3d_animation.plot(logger, frames, path_data, gif_path)  # Original 3D plot
     end_time = time.time()
     print(f"3D animation plotting took {end_time - start_time} seconds")
-    
+
     print("Plotting timeline...")
     # Generate 2D timeline
     plotter_timeline.setup_timeline(logger, path_data)
-    plotter_timeline.plot_timeline()
+    plotter_timeline.plot_timeline(timeline_path)
     #plotter._print_node_events()
         
     # for event in logger.events:
