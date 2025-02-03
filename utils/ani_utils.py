@@ -157,6 +157,12 @@ class NoCPlotter:
         """
         segments = []  # Each segment is a list of two (x, y, z) tuples.
         colors   = []  # Color (with alpha) for each segment.
+        self.connection_segment_indices = []
+        
+        self.connection_map = {
+            conn[0]: i 
+            for i, conn in enumerate(self.connections)
+        }
 
         # Vertical connections: connect corresponding points in points[0] and points[1]
         for p in range(len(self.points[0])):
@@ -175,6 +181,7 @@ class NoCPlotter:
                 p2 = self.points[0][p2_ix]
                 segments.append([p1, p2])
                 colors.append((0, 0, 0, 0.3))
+                self.connection_segment_indices.append([len(segments)-1])
             else:
                 # A wrap-around connection, where we split the connection into two segments.
                 # border is fixed
@@ -216,8 +223,8 @@ class NoCPlotter:
 
                 segments.append([p1, p1_border])
                 segments.append([p2, p2_border])
-                colors.append((0, 0, 0, 0.4))
-                colors.append((0, 0, 0, 0.4))
+                colors.extend([(0, 0, 0, 0.4), (0, 0, 0, 0.4)])
+                self.connection_segment_indices.append([len(segments)-2, len(segments)-1]) 
 
         # Create the 3D line collection with all segments and add it to the axes.
         self.connection_lines = Line3DCollection(segments, colors=colors, linewidths=1)
@@ -262,22 +269,88 @@ class NoCPlotter:
         zs = [p[2] for p in points]
         
         self.pe_comp_dots = self.ax.scatter(
-            [], [], [],  # Empty initially
+            xs, ys, zs,  
             color="tomato", 
             s=100, 
             alpha=0.3,
             marker="s"
         )
         self.pe_traf_dots = self.ax.scatter(
-            [], [], [],
+            [], [], [], #empty initially
             color="khaki",
             s=100,
             alpha=0.8,
             marker="D"
         )
         self.artists.extend([self.pe_comp_dots, self.pe_traf_dots])
+        
     ###############################################################################
+    
+    def colorize_nodes(self, currently_active: set, verbose: bool = False):
+        """Colorize nodes using scatter plot array operations"""
+        if verbose:
+            print("Active nodes:", currently_active)
+            
+        alphas = np.full(len(self.points[0]), 0.3)
+        # Create alpha array: 1.0 for active, 0.3 for inactive
+        if currently_active:
+            alphas[list(currently_active)] = 1.0
+        alphas[list(currently_active)] = 1.0
+        
+        # Update the scatter plot properties
+        self.node_dots.set_alpha(alphas)
+        
+    def colorize_pes(self, comp_active: set, traf_active: set, verbose: bool = False):
+        """Colorize PEs using separate scatter plots"""
+        if verbose:
+            print(f"Comp PEs: {comp_active}, Traffic PEs: {traf_active}")
+        
+        # Convert indices to coordinates
+        comp_alphas = np.full(len(self.points[1]), 0.3)
+        comp_colors = np.full(len(self.points[1]), "tomato")
+        
+        comp_alphas[list(comp_active)] = 1.0
+        
+        # Update traffic markers
+        traf_mask = np.zeros(len(self.points[1]), dtype=bool)
+        traf_mask[list(traf_active)] = True
+        
+        # Create coordinate arrays
+        traf_coords = np.array([self.points[1][i] for i in traf_active])
+        
+        # Resolve overlaps (traffic takes priority)
+        comp_alphas[traf_mask] = 0.3  # Dim computation markers for traffic PEs
+        
+        # Apply updates
+        self.pe_comp_dots.set_alpha(comp_alphas)
+        self.pe_comp_dots.set_color(comp_colors)
+        
+        if traf_coords.size > 0:
+            self.pe_traf_dots.set_offsets(traf_coords[:, :2])
+            self.pe_traf_dots.set_3d_properties(traf_coords[:, 2], 'z')
+            self.pe_traf_dots.set_alpha(0.8)
+        else:
+            self.pe_traf_dots.set_alpha(0.0)
+        
+    
+    def colorize_connections(self, currently_active: set, verbose: bool = False):
+        """Colorize connections using LineCollection properties"""
+        if verbose:
+            print("Active connections:", currently_active)
+        
+        # Create alpha array for all connections
+        alphas = np.full(len(self.connection_lines.get_segments()), 0.3)
+        
+            # For each active connection, update all its segments
+        for conn in currently_active:
+            if conn in self.connection_map:
+                seg_indices = self.connection_segment_indices[self.connection_map[conn]]
+                alphas[seg_indices] = 1.0
 
+        # Update line collection
+        self.connection_lines.set_alpha(alphas)
+    
+    ###############################################################################
     def create_faces(self):
         """
         Create the faces of the mesh, each layer will become a face
@@ -348,8 +421,8 @@ class NoCPlotter:
         self.timeStamp = self.ax.text(
             0.5, 0.9, 0.5, 
             "", 
-            transform=self.ax.transAxes,
-            ha = 'center')
+            transform=self.ax.transAxes)
+            #ha = 'upper center')
         self.artists.append(self.timeStamp)
         
         return self.artists  
@@ -441,42 +514,20 @@ class NoCPlotter:
             # Get precomputed data for this cycle
             active_nodes, active_conns, pes_comp, pes_traf = event_activations[cycle]
             
-            # Update NoC nodes (array-based)
-            node_alphas = np.full(len(self.points[0]), 0.3)  # Default alpha
-            node_alphas[list(active_nodes)] = 1.0
-            self.node_dots.set_alpha(node_alphas)
-            
-            self.connection_lines.set_alpha(1.0)
-
-            # Update PE markers (computation vs traffic)
-            if pes_comp:
-                comp_coords = np.array([self.points[1][idx] for idx in pes_comp])
-                # comp_coords should have shape (N, 3) if not empty
-                self.pe_comp_dots.set_offsets(comp_coords[:, :2])  # X,Y only for 3D
-                self.pe_comp_dots.set_3d_properties(comp_coords[:, 2], 'z')  # Z-axis
-            else:
-                # Pass an empty 2D array with shape (0, 2) if no data exists
-                self.pe_comp_dots.set_offsets(np.empty((0, 2)))
-            
-            # For traffic dots:
-            if pes_traf:
-                traf_coords = np.array([self.points[1][idx] for idx in pes_traf])
-                self.pe_traf_dots.set_offsets(traf_coords[:, :2])
-                self.pe_traf_dots.set_3d_properties(traf_coords[:, 2], 'z')
-            else:
-                self.pe_traf_dots.set_offsets(np.empty((0, 2)))
-            
-            # Update cycle counter text
+            # Update visual elements
+            self.colorize_nodes(active_nodes, verbose)
+            self.colorize_pes(pes_comp, pes_traf, verbose)
+            self.colorize_connections(active_conns, verbose)
             self.timeStamp.set_text(f"Cycle: {cycle}")
             
-            # Return ALL modified artists (critical for blitting)
+            # Return artists for blitting
             return [
                 self.node_dots,
                 self.connection_lines,
                 self.pe_comp_dots,
                 self.pe_traf_dots,
                 self.timeStamp
-            ]
+                    ]
 
         # Crea l'animazione utilizzando FuncAnimation
         ani = FuncAnimation(self.fig, 
@@ -494,7 +545,7 @@ class NoCPlotter:
                      writer='pillow', 
                      fps=1/pause,
                      savefig_kwargs={'facecolor': 'white'},
-                     dpi=150
+                     dpi=100
                      )
 
         #plt.show()
@@ -639,7 +690,7 @@ class NoCTimelinePlotter(NoCPlotter):
             self.ax2d.axhline(y=node + 0.4, color='grey', linestyle='--', linewidth=0.5)
 
         if filename: 
-            self.fig.savefig(filename, dpi=300)
+            self.fig2d.savefig(filename, dpi=300)
 
 
 

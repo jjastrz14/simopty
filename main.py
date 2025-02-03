@@ -143,8 +143,8 @@ if __name__ == "__main__":
     #results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
 
     #path to save the data
-    path_data = SAVE_DATA_DIR + "/all_time_shortest_path.json"
-    #path_data = "config_files/runs/test_run5.json"
+    #path_data = SAVE_DATA_DIR + "/all_time_shortest_path.json"
+    path_data = "config_files/runs/test_run5.json"
     results, logger = stub.run_simulation(path_data, verbose = True)
     print(results)
     
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     plotter_3d_animation = NoCPlotter()
     plotter_timeline = NoCTimelinePlotter()
     
-    frames = 0.1
+    frames = 0.5
     #paths
     gif_path = "visual/test.gif"
     timeline_path = "visual/test.png"
