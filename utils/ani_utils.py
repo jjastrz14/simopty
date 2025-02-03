@@ -479,12 +479,11 @@ class NoCPlotter:
             self.colorize_connections(currently_active_connections, verbose)
             self.timeStamp.set_text(f"Cycle: {cycle}")
 
-            plt.draw()
+            #plt.draw()
         # Crea l'animazione utilizzando FuncAnimation
         ani = FuncAnimation(self.fig, 
                             _update_graph,
-                            init_func = self._init, 
-                            blit = True, #to speed up the animation
+                            #blit = True, #to speed up the animation
                             frames=range(cycles), 
                             repeat=False, 
                             interval=pause*100
@@ -524,7 +523,7 @@ class NoCPlotter:
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
         self.gen_activity_animation(logger, pause,file_name, verbose)
-        plt.show()
+        #plt.show()
     ###############################################################################
 
 

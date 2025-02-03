@@ -166,7 +166,7 @@ if __name__ == "__main__":
     print("Plotting 3D animation...")
     plotter_3d_animation.plot(logger, frames, path_data, gif_path)  # Original 3D plot
     end_time = time.time()
-    print(f"3D animation plotting took {end_time - start_time} seconds")
+    print(f"3D animation plotting took {end_time - start_time:.2f} seconds")
 
     print("Plotting timeline...")
     # Generate 2D timeline
