@@ -151,7 +151,7 @@ class TaskGraph:
 
         
 
-    def add_task_fully_qualified(self, id, type, layer_id, size, weight_size, ct_required, dep, color = "lightblue"):
+    def add_task_fully_qualified(self, id, type, layer_id, size, weight_size, input_range, output_range, ct_required, dep, color = "lightblue"):
         """
         Adds a task (node) to the graph. Differently from the add_task method, this method allows to 
         specify all the parameters of the task that will be used during the simulation as a dictionary,
@@ -163,23 +163,29 @@ class TaskGraph:
             The id of the task. If None, the id is automatically assigned.
         layer_id : int
             The layer id of the task.
-        node: int
-            The node to wich the task is assigned.
         type : str
-            The type of the task.
+            A string representing the task type.
+        size : float
+            The size of the task.
+        weight_size : float
+            The size of the weights of the task.
+        input_range : dictionary
+            The range of the input data (both spatial and channel-wise).
+        output_range : dictionary
+            The range of the output data (both spatial and channel-wise).
         ct_required : float
             The computing time required by the task.
         dep : list
             The list of dependencies of the task.
-        color : str
-            The color of the task.
+        color : str (optional)  
+            The color of the node in the graph.
 
         """
         if id is None:
             id = self.id
             self.id += 1
         
-        elem = {"id": id, "type": type, "layer_id": layer_id, "size": size, "weight_size": weight_size, "ct_required": ct_required, "dep": dep}
+        elem = {"id": id, "type": type, "layer_id": layer_id, "size": size, "weight_size": weight_size, "input_range": input_range, "output_range": output_range , "ct_required": ct_required, "dep": dep}
         self.graph.add_node(id, layer = layer_id, color = color)
         self.nodes[id] = elem
 
@@ -571,7 +577,9 @@ def model_to_graph(model, verbose = False):
         task_id = 0
         dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
         layer_id = 0
-        scaling_factor = 100
+        # DIRTY FIX: the scaling factors should be included in restart rather than simopty
+        mem_scaling_factor = 64 # byte/flit
+        comp_scaling_factor = 100 # FLOPs per cycle
 
         # assign task ids to the partitions
         for layer, partitions in parts.items():
@@ -583,7 +591,7 @@ def model_to_graph(model, verbose = False):
                 partition.layer_id = layer_id
 
                 # Define computing time and task size
-                computing_time = int(partition.FLOPs//scaling_factor)
+                computing_time = int(partition.FLOPs//comp_scaling_factor)
                 computing_time = 1 if computing_time == 0 else computing_time
                 task_size = int(partition.tot_size)
                 task_size = 1 if task_size == 0 else task_size
@@ -591,9 +599,19 @@ def model_to_graph(model, verbose = False):
                 for weight in partition.weights_shape:
                     weight_size += np.prod(weight)
                 weight_size = int(weight_size)
+                # create input_range and output_range:
+                # input_range = [ "spatial_min": [min_x, min_y], "spatial_max": [max_x, max_y], "ch_bounds": [min_c, max_c]]
+                # output_range = [ "spatial_min": [min_x, min_y], "spatial_max": [max_x, max_y], "ch_bounds": [min_c, max_c]]
+                input_range = {"spatial_min": [min_bond for min_bond in partition.in_bounds[0]],
+                                "spatial_max": [max_bond for max_bond in partition.in_bounds[1]],
+                                "ch_bounds": [ch for ch in partition.in_ch] if partition.in_ch is not None else []}
+                output_range = {"spatial_min": [min_bond for min_bond in partition.out_bounds[0]],
+                                "spatial_max": [max_bond for max_bond in partition.out_bounds[1]],
+                                "ch_bounds": [ch for ch in partition.out_ch] if partition.out_ch is not None else []}
+
 
                 if task_size > 0 and computing_time > 0:
-                    dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id, size = task_size, weight_size= weight_size,ct_required= computing_time, dep = [])
+                    dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id, size = task_size, weight_size= weight_size,input_range=input_range,output_range=output_range,ct_required= computing_time, dep = [])
                     task_id += 1
             layer_id += 1
 
@@ -603,15 +621,22 @@ def model_to_graph(model, verbose = False):
             for dep, weight in value.items(): 
                 partition1_match = (partition for partition in partitions1 if partition.id == dep[0])
                 partition2_match = (partition for partition in partitions2 if partition.id == dep[1])
-                partition1 = next(partition1_match)
-                partition2 = next(partition2_match)
+                try:
+                    partition1 = next(partition1_match)
+                except StopIteration:
+                    raise ValueError(f"Partition with id {dep[0]} not found in partitions1")
+
+                try:
+                    partition2 = next(partition2_match)
+                except StopIteration:
+                    raise ValueError(f"Partition with id {dep[1]} not found in partitions2")
             
                 first_node ="start" if isinstance(partition1.layer, layers.InputLayer) else partition1.task_id
                 second_node = partition2.task_id
 
                 # Define communication type and size
                 comm_type = "WRITE" if isinstance(partition1.layer, layers.InputLayer) else "WRITE_REQ"
-                comm_size = int(weight//scaling_factor) 
+                comm_size = int(weight//mem_scaling_factor) 
                 if comm_size == 0:
                     comm_size = 0 if weight == 0 else 1
                 processing_time =int(0.5 * comm_size)
@@ -624,7 +649,7 @@ def model_to_graph(model, verbose = False):
 
         # Finally, connect the last layer partitions to the "end" node
         for partition in parts[model.layers[-1].name]:
-            results = int(np.prod(partition.out_bounds)) // scaling_factor
+            results = int(np.prod(partition.out_bounds)) // mem_scaling_factor
             results = 1 if results == 0 else results
             dep_graph.add_dependency_fully_qualified(partition.task_id, "end", id = dep_id, type = "WRITE", size = results, pt_required = processing_time, cl = 0, dep = [partition.task_id])
             dep_id += 1
