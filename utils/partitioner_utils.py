@@ -390,6 +390,13 @@ class PartitionInfo:
     # out-merging partition id
     out_merging: Union[None, str] = None
 
+    # MACs
+    MACs: int = 0
+    # FLOPs
+    FLOPs: int = 0
+    # Total size of the partition
+    tot_size: int = 0
+
    
     
 
@@ -831,8 +838,12 @@ def _adaptive_parsel(layer):
     
     #2^splitting factor - number of partinions, just for the spatial partitioning
     # Check the type of the layer
-    if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.Flatten, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
+    if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
         return 0,1,1
+    elif isinstance(layer, layers.Flatten):
+        #check the previous layer
+        prev_layer = layer._inbound_nodes[0].inbound_layers
+        return _adaptive_parsel(prev_layer)
     elif layer.name == "max_pooling2d":
         return 2,1,1
     elif isinstance(layer, layers.Add):
@@ -969,27 +980,28 @@ def _build_layer_deps(model: keras.Model)->Set:
             for in_layer in node_in.inbound_layers:
                 # check the type of the inbound layer
                 # if the layer is a Flatten type, we skip it
-                if isinstance(in_layer, layers.Flatten):
-                    continue
+
+                # if isinstance(in_layer, layers.Flatten):
+                #     continue
 
                 deps.add((dep_id, in_layer, layer_out))
         else:
             in_layer = node_in.inbound_layers
-            if isinstance(in_layer, layers.Flatten):
-                return
+            # if isinstance(in_layer, layers.Flatten):
+            #     return
             deps.add(( dep_id, in_layer, layer_out))
 
 
     for layer in model.layers:
         # check if the layer is layer.Flatten type: if so, we create dependencies between its
         # input and output nodes
-        if isinstance(layer, layers.Flatten):
-            for node_in in layer._inbound_nodes:
-                for node_out in layer._outbound_nodes:
-                    out_layer = node_out.outbound_layer # just one output layer
-                    add_to_deps(node_in, out_layer, dependencies, dep_id)
-                    dep_id += 1
-        else:
+        # if isinstance(layer, layers.Flatten):
+        #     for node_in in layer._inbound_nodes:
+        #         for node_out in layer._outbound_nodes:
+        #             out_layer = node_out.outbound_layer # just one output layer
+        #             add_to_deps(node_in, out_layer, dependencies, dep_id)
+        #             dep_id += 1
+        # else:
             for node in layer._inbound_nodes:
                 add_to_deps(node, layer, dependencies, dep_id)
                 dep_id += 1
@@ -1046,7 +1058,7 @@ def _group_partitions(partitions_layer1 : List[PartitionInfo], partitions_layer2
     partitions1_map_to_int = {p.id:i for i, p in enumerate(partitions_layer1)}
     partitions2_map_to_int = {p.id:i for i, p in enumerate(partitions_layer2)}
     name_layer2 = partitions_layer2[0].id.split('-')[0]
-
+        
 
     def _mark_partitions(part1: PartitionInfo, part2: PartitionInfo):
         """
@@ -1054,7 +1066,7 @@ def _group_partitions(partitions_layer1 : List[PartitionInfo], partitions_layer2
         """
         # if the first partition is already marked as mergeable, we mark the second partition as mergeable too,
         # and set the out_merging field of the first partition to the second partition
-        if part1.out_merging is not None:
+        if part1.mergeable is True:
             assert part2.out_merging is None and part2.mergeable is False and part1.merger is False and part1.mergeable is True
             part1.out_merging = part2.id
             part2.mergeable = True
@@ -1084,6 +1096,93 @@ def _group_partitions(partitions_layer1 : List[PartitionInfo], partitions_layer2
     # build the dependencies between the partitions of the two layers
     deps[(name_layer1, name_layer2)] = temp_deps[(name_layer1, name_layer2)]
 
+def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_deps: Dict[Tuple[str, str], int], memory_constraints: int):
+    """
+    This function is used to section the groups of partitions if the total size of the group does not satisfy the memory constraints of the PE:
+    a very simle implementation would be to go over the partitions in the group and stack as much as we possibly
+    can in the same group, then move to the next group. If we assume the "trend" of communication to be
+    monotonic decreasing, this should be a good approximation for an optimal solution.
+    On the other hand, if such approximation is not valid, we have basically a min cut problem with additional constraints:
+    to solve this, we could use a greedy algorithm with dynamic programming.
+    """
+
+    def compute_group_size(partitions_group: List[PartitionInfo]):
+        """
+        A function to compute the total size of a group of partitions
+        """
+        new_tot_size = 0
+        input_size = np.prod([partitions_group[0].in_bounds[1][i] - partitions_group[0].in_bounds[0][i] for i in range(len(partitions_group[0].in_bounds[0]))] if len(partitions_group[0].in_bounds[0]) > 1 else [partitions_group[0].in_bounds[1][0] - partitions_group[0].in_bounds[0][0]])
+        output_size = 0
+        additional_data = {}
+        for p in partitions_group:
+            additional_data[p.id] = p
+            for w in p.weights_shape:
+                new_tot_size += np.prod(w)
+            output_size += np.prod([p.out_bounds[1][i] - p.out_bounds[0][i] for i in range(len(p.out_bounds[0]))] if len(p.out_bounds[0]) > 1 else [p.out_bounds[1][0] - p.out_bounds[0][0]])
+        new_tot_size += input_size + output_size
+        return new_tot_size
+
+    # go over the partitions: for each partitions, check if that partition is the head (merger) of a group of partitions
+    # if so, go down the chain of partitions and save them in a list
+    for layer_name, partitions_list in partitions.items():
+        for p in partitions_list:
+            if p.merger is True:
+                to_group = []
+                to_group.append(p)
+                next_p = p
+                while next_p.out_merging is not None:
+                    layer_name = next_p.out_merging.split('-')[0]
+                    for p in partitions[layer_name]:
+                        if p.id == next_p.out_merging:
+                            next_p = p
+                            break
+                    to_group.append(next_p)
+
+    # check the total size of the group of partitions: if it is smaller than the memory constraints, we can keep the group as it is
+    # otherwise, we split the group
+
+    if compute_group_size(to_group) <= memory_constraints:
+        return 
+    else:
+        new_groups = []
+        cur_group = []
+        cur_group_size = 0
+        for p in to_group:
+            if compute_group_size([p]) > memory_constraints:
+                raise ValueError("Partition size is greater than the memory constraints of the PE")
+            cur_group_size += compute_group_size([p])
+            if cur_group_size <= memory_constraints:
+                cur_group.append(p)
+            else:
+                new_groups.append(cur_group)
+                cur_group = [p]
+                cur_group_size = compute_group_size([p])
+        new_groups.append(cur_group)
+
+        print("New groups: ", new_groups)
+
+        # now for each sub-group, we access the partitions and change the mergeable, merger and out_merging fields
+        # as follows:
+        # - if the partition is the first in the group, we set the mergeable field to False and the merger field to True
+        # - if the partition is the last in the group, we set the mergeable field to True and the out_merging field to None
+
+        for group in new_groups:
+            for p_id, p in enumerate(group):
+                if p_id == 0:
+                    p.mergeable = False
+                    p.merger = True
+                    p.out_merging = p.out_merging if len(group) > 1 else None
+                elif p_id == len(group) - 1:
+                    p.mergeable = True
+                    p.out_merging = None
+                else:
+                    p.mergeable = True
+                    p.merger = False
+                    # p.out_merging = group[p_id+1].id
+
+        return 
+
+
 
 def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], partitions_deps: Dict[Tuple[str, str], int])-> Tuple[Dict, Dict]:
     """
@@ -1091,17 +1190,14 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
     a unique partition
     """
 
-    def _split_in_subgroups(partitions: List[PartitionInfo], partitions_deps: Dict):
-        """
-        A handy function to split the group of partitions in subgroups if the memory constraints are not satisfied
-        """
-        pass
-
 
     def _merge_partitions(partition_to_merge: List[PartitionInfo], partitions_deps: Dict):
         """
         Handy function to group together partitions
         """
+
+        print("Partition to merge: ", partition_to_merge)
+    
         new_id = partition_to_merge[0].id
         new_layer = partition_to_merge[0].layer
         new_in_bounds = partition_to_merge[0].in_bounds
@@ -1115,18 +1211,15 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
         # the total size is computed as the sum of the sizes of the weight for the partitions
         # and the sum of the maximum size of the input and output tensors
         new_tot_size = 0
-        max_input_size = 0
-        max_output_size = 0
+        input_size = np.prod([partition_to_merge[0].in_bounds[1][i] - partition_to_merge[0].in_bounds[0][i] for i in range(len(partition_to_merge[0].in_bounds[0]))] if len(partition_to_merge[0].in_bounds[0]) > 1 else [partition_to_merge[0].in_bounds[1][0] - partition_to_merge[0].in_bounds[0][0]])
+        output_size = 0
         additional_data = {}
         for p in partition_to_merge:
             additional_data[p.id] = p
             for w in p.weights_shape:
                 new_tot_size += np.prod(w)
-            input_size = np.prod([p.in_bounds[1][i] - p.in_bounds[0][i] for i in range(len(p.in_bounds[0]))] if len(p.in_bounds[0]) > 1 else [p.in_bounds[1][0] - p.in_bounds[0][0]])
-            output_size = np.prod([p.out_bounds[1][i] - p.out_bounds[0][i] for i in range(len(p.out_bounds[0]))] if len(p.out_bounds[0]) > 1 else [p.out_bounds[1][0] - p.out_bounds[0][0]])
-            max_input_size = max(max_input_size, input_size)
-            max_output_size = max(max_output_size, output_size)
-        new_tot_size += max_input_size + max_output_size
+            output_size += np.prod([p.out_bounds[1][i] - p.out_bounds[0][i] for i in range(len(p.out_bounds[0]))] if len(p.out_bounds[0]) > 1 else [p.out_bounds[1][0] - p.out_bounds[0][0]])
+        new_tot_size += input_size + output_size
         
         new_partition = PartitionInfo(layer = new_layer,
                                     id = new_id,
@@ -1159,16 +1252,20 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
             if key[0] == partition_to_merge[-1].id.split('-')[0]:
                 stitching_deps = deepcopy(partitions_deps[key])
                 pre_key = key
+                print("Pre key: ", pre_key)
                 new_key = (new_id.split('-')[0], key[1])
+                print("New key: ", new_key)
                 break
+
+        
 
         # stitch back together the dependencies
         if new_key is not None:
             partitions_deps[new_key] = {} if partitions_deps.get(new_key) is None else partitions_deps[new_key]
             for key, value in stitching_deps.items():
                 if key[0] == partition_to_merge[-1].id:
-                    partitions_deps[new_key][(new_id, key[1])] = value
                     del partitions_deps[pre_key][key]
+                    partitions_deps[new_key][(new_id, key[1])] = value
             if len(partitions_deps[pre_key]) == 0:
                 del partitions_deps[pre_key]
 
@@ -1190,7 +1287,7 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
             elif p.merger is True:
                 # until no more mergiable partitions are found,
                 # go down the chain of partitions
-                assert p.out_merging is not None
+                # assert p.out_merging is not None
                 to_group.append(p)
                 next_p = p
                 while next_p.out_merging is not None:
@@ -1237,10 +1334,10 @@ def build_partitions(model: keras.Model, grouping: bool = True,verbose : bool = 
     # then proceed with the other layers
     for _, prev_layer, layer in sorted(layer_deps, key = lambda x: x[0]):
         # if the layer is a Flatten type, we can direclty skip it
-        if isinstance(layer, layers.Flatten):
-            if verbose:
-                print("Skipping layer {}".format(layer.name))
-            continue
+        # if isinstance(layer, layers.Flatten):
+        #     if verbose:
+        #         print("Skipping layer {}".format(layer.name))
+        #     continue
         spat, out_ch, in_ch = _adaptive_parsel(layer)
         partitions[layer.name] = _build_partitions_from_layer(layer, spat, out_ch, in_ch)
         
@@ -1255,6 +1352,7 @@ def build_partitions(model: keras.Model, grouping: bool = True,verbose : bool = 
             print("Layer {} partitioned succesfully with partition parameters: {} ".format(layer.name, (spat, out_ch, in_ch)))
 
     if grouping:
+        _section_partitions(partitions, partitions_deps, pe.mem_size)
         partitions, partitions_deps = _build_straight_through_deps(partitions=partitions, partitions_deps=partitions_deps)
 
     return partitions, partitions_deps
@@ -1283,6 +1381,9 @@ def analyze_partition(partition):
     FLOPs = 0
     MACs = 0
     tot_par_size = 0
+
+    if isinstance(partition.layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity, layers.Flatten)):
+        return MACs, FLOPs, tot_par_size
 
     # Get the layer and the input and output shapes of the partition
     layer = partition.layer
