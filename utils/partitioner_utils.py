@@ -1158,8 +1158,6 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
                 cur_group_size = compute_group_size([p])
         new_groups.append(cur_group)
 
-        print("New groups: ", new_groups)
-
         # now for each sub-group, we access the partitions and change the mergeable, merger and out_merging fields
         # as follows:
         # - if the partition is the first in the group, we set the mergeable field to False and the merger field to True
@@ -1194,8 +1192,6 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
         """
         Handy function to group together partitions
         """
-
-        print("Partition to merge: ", partition_to_merge)
     
         new_id = partition_to_merge[0].id
         new_layer = partition_to_merge[0].layer
@@ -1251,9 +1247,7 @@ def _build_straight_through_deps(partitions: Dict[str, List[PartitionInfo]], par
             if key[0] == partition_to_merge[-1].id.split('-')[0]:
                 stitching_deps = deepcopy(partitions_deps[key])
                 pre_key = key
-                print("Pre key: ", pre_key)
                 new_key = (new_id.split('-')[0], key[1])
-                print("New key: ", new_key)
                 break
 
         

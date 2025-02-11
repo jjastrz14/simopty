@@ -9,7 +9,10 @@
             "routing_function" : "dim_order",
             "num_vcs" : 16,
             "user_defined_traffic" : 1,
-            "watch_out" : "-"
+            "watch_out" : "-",
+            "reconfiguration": 1,
+            "reconf_cycles": 2,
+            "max_pe_mem": 15
         },
         
     "workload" : [
