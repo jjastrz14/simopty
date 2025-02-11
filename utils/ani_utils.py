@@ -222,10 +222,12 @@ class NoCPlotter:
         segments = []
         self.connection_indices = defaultdict(list)  # Maps (node_pair) -> segment indices
         
+        
         # Rebuild coordinates the same way as original connection plotting
         for idx, conn in enumerate(self.connections):
             # conn should be in format: 
             # (connection_type, (node1, node2), [connection_specific_params])
+            print(idx, conn)
             conn_type = conn[0]
             node_pair = tuple(sorted(conn[1]))
             p1_ix, p2_ix = conn[1]
