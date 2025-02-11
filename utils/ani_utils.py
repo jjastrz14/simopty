@@ -46,12 +46,15 @@ class NoCPlotter:
         self.points[0] = []  # NoC elements
         self.points[1] = []  # NPUs
         self.points[2] = []  # NVMs (for future use)
+        self.points[2] = []  # Reconfiguring memories
         self.artists_points = {} # List of the artists for the points
         self.artists_points[0] = [] 
         self.artists_points[1] = []
+        self.artists_points[2] = []
         self.artists_points["txt"] = [] 
         self.connections = [] # List of the connection between the points 
         self.artists_hconnections = {} # List of the artists for the connections (horizontal)
+        self.artists_reconf_connections = {} # List of the artists for the connections between the reconfiguring memories and the PEs
         self.artists_vconnections = {} # List of the artists for the connections (vertical)
         self.num_of_layers = 0
         self.layers = [] # list of the layers
@@ -99,9 +102,15 @@ class NoCPlotter:
         # read the arch field from configuration file
         config = json.load(open(config_file))
         arch = config['arch']
+        self.topology = arch["topology"]
+        self.k = arch["k"]
+        self.n = arch["n"]
+        self.reconf = arch["reconfiguration"]
 
         # Number of layers
-        self.num_of_layers = 2 # one layer for NoC elements, the other for NPUs
+        self.num_of_layers = 2  # one layer for NoC elements, the other for NPUs + one for reconfiguring memories
+        if self.reconf != 0:
+            self.num_of_layers += 1
         proc_elemnt_ids = []
         for pe in range(arch["k"]** arch["n"]):
             proc_elemnt_ids.append(pe)
@@ -113,12 +122,14 @@ class NoCPlotter:
             y = p // arch["k"]
             z = 0
             self.points[0].append((x, y, z)) # 0 is for NoC elements
-            self.points[1].append((x, y, z-0.5)) # 1 is for NPUs
+            self.points[1].append((x, y, z+0.5)) # 1 is for NPUs
+            # if the field "reconfiguration" is set to any number different from 0,
+            # we must also append a third layer representing the reconfiguring memories
+            if self.reconf != 0:
+                self.points[2].append((x, y, z+1))
 
         # Build the list of connections based on the mesh topology
-        self.topology = arch["topology"]
-        self.k = arch["k"]
-        self.n = arch["n"]
+        
         for node in range(arch["k"]** arch["n"]):
             neighbors = _get_neighbors(arch["k"], arch["n"], node, self.topology) +[(node, 0)]
             for neighbor in neighbors:
@@ -167,6 +178,19 @@ class NoCPlotter:
 
         artist, = self.ax.plot(x, y, z, color='black', alpha = 0.3)
         self.artists_vconnections[(p1_ix, p2_ix)] = artist
+
+        if self.reconf != 0:
+            x.append(self.points[1][p1_ix][0])
+            x.append(self.points[2][p2_ix][0])
+
+            y.append(self.points[1][p1_ix][1])
+            y.append(self.points[2][p2_ix][1])
+
+            z.append(self.points[1][p1_ix][2])
+            z.append(self.points[2][p2_ix][2])
+
+            artist, = self.ax.plot(x, y, z, color='black', alpha = 0.3)
+            self.artists_reconf_connections[(p2_ix, p2_ix)] = artist
 
 
     def horizontal_connection(self, p1_ix, p2_ix, in_plane):
@@ -237,7 +261,7 @@ class NoCPlotter:
         points_coordinates = np.array(self.points[1])
         i = 0
         for x, y, z in zip(points_coordinates[:, 0], points_coordinates[:, 1], points_coordinates[:, 2]):
-            self.artists_points["txt"].append(self.ax.text(x, y, z - 0.07, i, size=5, color='k', fontdict={'weight': 'bold'}, ha='left', va='bottom'))
+            self.artists_points["txt"].append(self.ax.text(x, y, z + 0.57 , i, size=8, color='k', fontdict={'weight': 'bold'}, ha='left', va='bottom'))
             i = i + 1
 
     def plot_nodes(self, points):
@@ -276,6 +300,24 @@ class NoCPlotter:
         # ys = points_coordinates[:, 1]
         # zs = points_coordinates[:, 2]
         # self.artists_points[1].append(self.ax.scatter(xs, ys, zs,color = "tomato" , s = 200, marker="s", alpha = 0.3)) 
+
+    def plot_reconf(self, points):
+        """
+        Annotating the points (Reconfiguring Memories) using their index
+        """
+        points_coordinates = []
+        for p in points:
+            points_coordinates.append(p)
+            x = p[0]
+            y = p[1]
+            z = p[2]
+            artist, = self.ax.plot(x, y, z, color = "limegreen", marker="D", markersize=10, alpha = 0.3)
+            self.artists_points[2].append(artist)
+        # points_coordinates = np.array(points_coordinates)
+        # xs = points_coordinates[:, 0]
+        # ys = points_coordinates[:, 1]
+        # zs = points_coordinates[:, 2]
+        # self.artists_points[2].append(self.ax.scatter(xs, ys, zs,color = "khaki" , s = 200, marker="D", alpha = 0.3))
     ###############################################################################
 
     def colorize_nodes(self, currently_active:set, verbose:bool = False):
@@ -290,7 +332,7 @@ class NoCPlotter:
                 self.artists_points[0][i].set_alpha(target_alpha)
 
                 
-    def colorize_pes(self, currently_active_comp:set, currently_active_traf:set, verbose: bool = False):
+    def colorize_pes(self, currently_active_comp:set, currently_active_traf:set, currently_active_reconf: set, verbose: bool = False):
         """
         Colorize the PEs
         """
@@ -299,17 +341,31 @@ class NoCPlotter:
             print("Currently active PEs for traffic: ", currently_active_traf)
         for i in range(len(self.points[1])):
             if i in currently_active_comp:
-                if self.artists_points[1][i].get_color() != "tomato" or self.artists_points[1][i].get_alpha() != 1:
-                    self.artists_points[1][i].set_color("tomato")
-                    self.artists_points[1][i].set_alpha(1)
+                assert i not in currently_active_reconf
+                self.artists_points[1][i].set_color("tomato")
+                self.artists_points[1][i].set_alpha(1)
             elif i in currently_active_traf:
-                if self.artists_points[1][i].get_color() != "khaki" or self.artists_points[1][i].get_alpha() != 0.8:
-                    self.artists_points[1][i].set_color("khaki")
-                    self.artists_points[1][i].set_alpha(0.8)
+                self.artists_points[1][i].set_color("khaki")
+                self.artists_points[1][i].set_alpha(0.8)
+            elif i in currently_active_reconf:
+                self.artists_points[1][i].set_color("limegreen")
+                self.artists_points[1][i].set_alpha(1)
             else:
                 if self.artists_points[1][i].get_color() != "tomato" or self.artists_points[1][i].get_alpha() != 0.3:
                     self.artists_points[1][i].set_color("tomato")
                     self.artists_points[1][i].set_alpha(0.3)
+
+    def colorize_reconf(self, currently_active:set, verbose: bool = False):
+        """
+        Colorize the reconfiguring memories
+        """
+        if verbose:
+            print("Currently active reconfiguring memories: ", currently_active)
+        for i in range(len(self.points[2])):
+            if i in currently_active:
+                self.artists_points[2][i].set_alpha(1)
+            else:
+                self.artists_points[2][i].set_alpha(0.3)
 
     def colorize_connections(self, currently_active:set, verbose: bool = False):
         """
@@ -325,8 +381,36 @@ class NoCPlotter:
                     if a.get_alpha() != target_alpha:
                         a.set_alpha(target_alpha)
             else:
-                if to_check[c[0]].get_alpha() != target_alpha:
-                    to_check[c[0]].set_alpha(target_alpha)
+                if isinstance(to_check[c[0]], list):
+                    for a in to_check[c[0]]:
+                        a.set_alpha(0.3)
+                        
+                else:
+                    to_check[c[0]].set_alpha(0.3)
+
+    def colorize_reconf_connections(self, currently_active:set, verbose: bool = False):
+        """
+        Colorize the connections between the reconfiguring memories and the PEs
+        """
+        if verbose:
+            print("Currently active connections between reconfiguring memories and PEs: ", currently_active)
+        #loop over the currently active connections, find the corresponding artists and set their alpha to 1
+        for c in [(k,k) for k in range(len(self.points[0]))]:
+            if c[0] in currently_active:
+                if isinstance(self.artists_reconf_connections[c[0]], list):
+                    for a in self.artists_reconf_connections[c[0]]:
+                        a.set_alpha(1)
+                else:
+                    self.artists_reconf_connections[c[0]].set_alpha(1)
+            else:
+                if isinstance(self.artists_reconf_connections[c[0]], list):
+                    for a in self.artists_reconf_connections[c[0]]:
+                        a.set_alpha(0.3)
+                else:
+                    self.artists_reconf_connections[c[0]].set_alpha(0.3)
+
+            
+    
 
     ###############################################################################
     def create_faces(self):
@@ -394,7 +478,7 @@ class NoCPlotter:
         self.ax.add_collection3d(poly)
     ###############################################################################
 
-    def gen_activity_animation(self, logger, pause: float = 0.5, file_name: Union[str, None] = None, verbose: bool = False):
+    def gen_activity_animation(self, logger, fps: int = 100, file_name: Union[str, None] = None, verbose: bool = True):
         """
         The function takes as input a logger object (defined in the nocsim module, exposed in restart). This is used as a chonological timeline
         on which the events that happen on NoC are registered. We unroll this timeline and plot it in a matplotlib animation
@@ -409,12 +493,18 @@ class NoCPlotter:
 
         anti_events_map = { nocsim.EventType.IN_TRAFFIC : nocsim.EventType.OUT_TRAFFIC,
                             nocsim.EventType.END_COMPUTATION : nocsim.EventType.START_COMPUTATION,
+                            nocsim.EventType.END_RECONFIGURATION : nocsim.EventType.START_RECONFIGURATION,
                             nocsim.EventType.END_SIMULATION : nocsim.EventType.START_SIMULATION}
 
-        self.timeStamp = self.ax.text(0, 0, 0.5, 0, size=12, color='red')
+        self.timeStamp = self.ax.text(0, 0, 1., 0, size=12, color='red')
         cycles = logger.events[-1].cycle
         events_pointer = 0 # pointer to the events in the logger
         current_events = set() # set of the current events
+
+        def _init_graph():
+            nonlocal events_pointer, current_events
+            events_pointer = 0
+            current_events = set()
 
         def _update_graph(cycle):
             nonlocal events_pointer, current_events
@@ -443,6 +533,7 @@ class NoCPlotter:
             # Prepare sets for active elements
             currently_active_nodes = set()
             currently_active_pes_comp = set()
+            currently_active_pes_reconf = set()
             currently_active_pes_traf = set()
             currently_active_connections = set()
 
@@ -464,20 +555,26 @@ class NoCPlotter:
                 elif event.type == nocsim.EventType.START_COMPUTATION:
                     currently_active_pes_comp.add(event.info.node)
 
-            # Update visualization only where needed
+                elif logger.events[event].type == nocsim.EventType.START_COMPUTATION:
+                    currently_active_pes_comp.add(logger.events[event].info.node)
+                elif logger.events[event].type == nocsim.EventType.START_RECONFIGURATION:
+                    currently_active_pes_reconf.add(logger.events[event].additional_info)
+                    
+
             self.colorize_nodes(currently_active_nodes, verbose)
-            self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf, verbose)
+            self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf, currently_active_pes_reconf, verbose)
             self.colorize_connections(currently_active_connections, verbose)
+            self.colorize_reconf(currently_active_pes_reconf, verbose)
             self.timeStamp.set_text(f"Cycle: {cycle}")
 
-            #plt.draw()
+            plt.draw()
         # Crea l'animazione utilizzando FuncAnimation
         ani = FuncAnimation(self.fig, 
                             _update_graph,
                             #blit = True, #to speed up the animation
                             frames=range(cycles), 
-                            repeat=False, 
-                            interval=pause*100
+                            init_func=_init_graph ,repeat=False, 
+                            interval=1000/fps
                             )
 
         # Salva l'animazione se file_name è specificato
@@ -490,10 +587,14 @@ class NoCPlotter:
                      )
 
         #plt.show()
+            ani.save(file_name, writer='imagemagick', fps=fps)
+
+        plt.show()
+            
             
     ###############################################################################
 
-    def plot(self,logger, pause, network_file = None, file_name = None, verbose = False):
+    def plot(self,logger, pause, network_file = None, file_name = None, verbose = True):
         """
         Main Execution Point
         """
@@ -512,6 +613,7 @@ class NoCPlotter:
         # plot_faces()
         self.plot_nodes(self.points[0])
         self.plot_pes(self.points[1])
+        self.plot_reconf(self.points[2])
         self.gen_activity_animation(logger, pause,file_name, verbose)
         #plt.show()
     ###############################################################################

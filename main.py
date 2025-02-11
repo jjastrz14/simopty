@@ -108,11 +108,11 @@ if __name__ == "__main__":
 
     # # # # print(split_spatial_dims(model.layers[2], 2))
     
-    task_graph = model_to_graph(model, verbose=True)
-    # plot_graph(task_graph)
+    # task_graph = model_to_graph(model, verbose=True)
+    # # plot_graph(task_graph)
 
-    grid = dm.Grid()
-    grid.init(6, 2, dm.Topology.TORUS)
+    # grid = dm.Grid()
+    # grid.init(6, 2, dm.Topology.TORUS)
 
     params = op.ACOParameters(
         n_ants = 100,

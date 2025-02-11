@@ -10,11 +10,10 @@
             "num_vcs" : 16,
             "user_defined_traffic" : 1,
             "watch_out" : "-",
-            "watch_file" : "../config_examples/watch_list",
             "logger": 1,
             "reconfiguration": 1,
             "reconf_cycles": 2,
-            "max_pe_mem": 10
+            "max_pe_mem": 15
         },
         
     "workload" : [
@@ -55,6 +54,16 @@
             "type" : "COMP_OP",
             "ct_required" : 5,
             "dep" : [2]
+        },
+        {
+            "id" : 4,
+            "src" : 1,
+            "dst" : 3,
+            "size" : 3,
+            "dep" : [1],
+            "type" : "WRITE",
+            "cl" : 0,
+            "pt_required" : 5
         }
     ]
 }
