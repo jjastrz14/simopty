@@ -45,8 +45,7 @@ class NoCPlotter:
         self.points = {} # List of the nodes/points
         self.points[0] = []  # NoC elements
         self.points[1] = []  # NPUs
-        self.points[2] = []  # NVMs (for future use)
-        self.points[2] = []  # Reconfiguring memories
+        self.points[2] = []  # Reconfiguring memories NVMs
         self.artists_points = {} # List of the artists for the points
         self.artists_points[0] = [] 
         self.artists_points[1] = []
@@ -496,7 +495,7 @@ class NoCPlotter:
                             nocsim.EventType.END_RECONFIGURATION : nocsim.EventType.START_RECONFIGURATION,
                             nocsim.EventType.END_SIMULATION : nocsim.EventType.START_SIMULATION}
 
-        self.timeStamp = self.ax.text(0, 0, 1., 0, size=12, color='red')
+        self.timeStamp = self.ax.text(0, 0, 1., 0, size=12, color='red', fontdict={'weight': 'bold'}, ha='left', va='bottom', transform=self.ax.transAxes)
         cycles = logger.events[-1].cycle
         events_pointer = 0 # pointer to the events in the logger
         current_events = set() # set of the current events
@@ -555,19 +554,18 @@ class NoCPlotter:
                 elif event.type == nocsim.EventType.START_COMPUTATION:
                     currently_active_pes_comp.add(event.info.node)
 
-                elif logger.events[event].type == nocsim.EventType.START_COMPUTATION:
-                    currently_active_pes_comp.add(logger.events[event].info.node)
-                elif logger.events[event].type == nocsim.EventType.START_RECONFIGURATION:
-                    currently_active_pes_reconf.add(logger.events[event].additional_info)
+                elif logger.events[event_idx].type == nocsim.EventType.START_RECONFIGURATION:
+                    currently_active_pes_reconf.add(event.additional_info)
                     
 
             self.colorize_nodes(currently_active_nodes, verbose)
             self.colorize_pes(currently_active_pes_comp, currently_active_pes_traf, currently_active_pes_reconf, verbose)
             self.colorize_connections(currently_active_connections, verbose)
             self.colorize_reconf(currently_active_pes_reconf, verbose)
+            #self.colorize_reconf_connections(currently_active_pes_reconf, verbose)
             self.timeStamp.set_text(f"Cycle: {cycle}")
 
-            plt.draw()
+            #plt.draw()
         # Crea l'animazione utilizzando FuncAnimation
         ani = FuncAnimation(self.fig, 
                             _update_graph,
@@ -581,15 +579,11 @@ class NoCPlotter:
         if file_name:
             ani.save(file_name, 
                      writer='pillow', 
-                     fps=1/pause,
+                     fps=fps,
                      savefig_kwargs={'facecolor': 'white'},
                      dpi=100
                      )
-
-        #plt.show()
-            ani.save(file_name, writer='imagemagick', fps=fps)
-
-        plt.show()
+            print(f"Animation saved to {file_name}")
             
             
     ###############################################################################
@@ -641,10 +635,11 @@ class NoCTimelinePlotter(NoCPlotter):
 
     def _preprocess_events(self, logger):
         """Extract computation/traffic events per node."""
-        self.node_events = {i: {"comp": [], "traf": []} for i in range(len(self.points[1]))}
+        self.node_events = {i: {"comp": [], "traf": [], "recon": []} for i in range(len(self.points[1]))}
     
         # Process computation events
         for event in logger.events:
+            ######### COMPUTATIONS #######
             if event.type == nocsim.EventType.START_COMPUTATION:
                 node = event.info.node
                 start = event.cycle
@@ -662,7 +657,7 @@ class NoCTimelinePlotter(NoCPlotter):
                 except StopIteration:
                     print(f"Warning: No END_COMPUTATION found for node {node} at cycle {start}")
                     continue 
-                
+            ######### TRAFFIC #######    
             elif event.type == nocsim.EventType.OUT_TRAFFIC:
                 id_message = event.additional_info
                 communication_type = event.ctype #comunication type of the event
@@ -685,6 +680,29 @@ class NoCTimelinePlotter(NoCPlotter):
                 except StopIteration:
                     print(f"Warning: No IN_TRAFFIC  found for id message {id_message}  with communication type {communication_type} at cycle {start}")
                     continue 
+            ######### RECONFIGURATION #######
+            elif event.type == nocsim.EventType.START_RECONFIGURATION:
+                node = event.info.node
+                start = event.cycle
+                
+                # Find matching END_RECONFIGURATION with error handling
+                try:
+                    end_event = next(
+                        e for e in logger.events 
+                        if e.type == nocsim.EventType.END_RECONFIGURATION 
+                        and e.info.node == node
+                        and e.cycle > start  # Ensure valid duration
+                    )
+                    duration = end_event.cycle - start #+ 1  # Inclusive duration, why not here? think about it!
+                    self.node_events[node]["recon"].append((start, duration))
+                except StopIteration:
+                    print(f"Warning: No END_RECONFIGURATION found for node {node} at cycle {start}")
+                    continue 
+            ######### Events to omit #####
+            elif event.type == nocsim.EventType.START_SIMULATION or nocsim.EventType.END_SIMULATION:
+                continue
+            else:
+                raise TypeError(f"Unknown event type: {event.type}") 
                         
     
     def _print_node_events(self):
@@ -694,6 +712,7 @@ class NoCTimelinePlotter(NoCPlotter):
             print(f"Node {node}:")
             print(f"Computation events: {events['comp']}")
             print(f"Traffic events: {events['traf']}")
+            print(f"Reconfiguration events: {events['recon']}")
             print()
 
     def plot_timeline(self, filename):
@@ -706,6 +725,9 @@ class NoCTimelinePlotter(NoCPlotter):
             # Plot traffic events (blue)
             if events["traf"]:
                 self.ax2d.broken_barh(events["traf"], (node - 0.4, 0.8), facecolors='dodgerblue', label="Traffic", alpha=0.5)
+            # Plot traffic events (green)
+            if events["traf"]:
+                self.ax2d.broken_barh(events["recon"], (node - 0.4, 0.8), facecolors='limegreen', label="Reconfiguration", alpha=0.7)
         
         # Deduplicate legend entries
         handles, labels = self.ax2d.get_legend_handles_labels()
@@ -734,6 +756,7 @@ class NoCTimelinePlotter(NoCPlotter):
 
         if filename: 
             self.fig2d.savefig(filename, dpi=300)
+            print(f"Timeline graph saved to {filename}")
 
 
 

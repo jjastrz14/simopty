@@ -94,31 +94,31 @@ if __name__ == "__main__":
     # print(shortest[0], 1/shortest[1])
 
     model = test_model((28, 28, 1))
-    # # # # model = load_model("ResNet50")
-    # # # # model = load_model("MobileNet")
-    # # # # model = load_model("MobileNetV2")
-    # model = test_model((28, 28, 1))
-    # # # # model = load_model("ResNet50")
-    # # # # model = load_model("MobileNet")
-    # # # # model = load_model("MobileNetV2")
+    # # # # # model = load_model("ResNet50")
+    # # # # # model = load_model("MobileNet")
+    # # # # # model = load_model("MobileNetV2")
+    # # model = test_model((28, 28, 1))
+    # # # # # model = load_model("ResNet50")
+    # # # # # model = load_model("MobileNet")
+    # # # # # model = load_model("MobileNetV2")
 
-    # model.summary()
-    # plot_model(model, to_file="visual/model.png", show_shapes=True)
-    # #analyze_ops(model, False)
+    # # model.summary()
+    # # plot_model(model, to_file="visual/model.png", show_shapes=True)
+    # # #analyze_ops(model, False)
 
-    # # # # print(split_spatial_dims(model.layers[2], 2))
+    # # # # # print(split_spatial_dims(model.layers[2], 2))
     
-    # task_graph = model_to_graph(model, verbose=True)
-    # # plot_graph(task_graph)
+    task_graph = model_to_graph(model, verbose=True)
+    #plot_graph(task_graph)
 
-    # grid = dm.Grid()
-    # grid.init(6, 2, dm.Topology.TORUS)
+    grid = dm.Grid()
+    grid.init(6, 2, dm.Topology.TORUS)
 
     params = op.ACOParameters(
         n_ants = 100,
         rho = 0.05,
         n_best = 20,
-        n_iterations = 20,
+        n_iterations = 2,
         alpha = 1.,
         beta = 1.2,
     )
@@ -126,69 +126,70 @@ if __name__ == "__main__":
     n_procs = 100 #n_processors shouldn't be greater than n_ants
 
     opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
-    # #opt = op.AntColony(params, grid, task_graph)
+    # # # #opt = op.AntColony(params, grid, task_graph)
 
-    # #shortest = opt.run_with_saves(once_every=1, show_traces= False) #run with init, middle and best saves
+    # # # #shortest = opt.run_with_saves(once_every=1, show_traces= False) #run with init, middle and best saves
     shortest = opt.run(once_every=1, show_traces= False)
     print(shortest[1])
     print(opt.path_length(shortest[1], verbose = True))
     opt.save_path_json(shortest[1], SAVE_DATA_DIR + "/all_time_shortest_path.json")
             
-    # Load the statistics and plot the results
-    # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
-    # print(stats)
+    # # # Load the statistics and plot the results
+    # # # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
+    # # # print(stats)
 
     # Create a SimulatorStub object
     stub = ss.SimulatorStub(EX_DIR)
 
     # Run the simulation
     processors = list(range(6))
-    #config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
-    #results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
-    #results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
+    # #config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
+    # results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
+    # results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
 
-    #path to save the data
+    # #path to save the data
     path_data = SAVE_DATA_DIR + "/all_time_shortest_path.json"
+    #path_data = "config_files/test_recon.json"
     #path_data = "config_files/runs/test_run.json"
-    results, logger = stub.run_simulation(path_data, verbose = True)
+    results, logger = stub.run_simulation(path_data, verbose = False)
     print(results)
     
-    # #Initialize plotter with timeline support
-    # plotter_3d_animation = NoCPlotter()
-    # plotter_timeline = NoCTimelinePlotter()
+    #Initialize plotter with timeline support
+    plotter_3d_animation = NoCPlotter()
+    plotter_timeline = NoCTimelinePlotter()
     
-    # frames = 0.5
-    # #paths
-    # gif_path = "visual/test.gif"
-    # timeline_path = "visual/test.png"
+    fps = 100
+    # # #paths
+    #gif_path = "visual/test.gif"
+    timeline_path = "visual/test.png"
     
     # start_time = time.time()
     # print("Plotting 3D animation...")
-    # plotter_3d_animation.plot(logger, frames, path_data, gif_path)  # Original 3D plot
+    # plotter_3d_animation.plot(logger, fps, path_data, gif_path, verbose = False)  # Original 3D plot
     # end_time = time.time()
     # print(f"3D animation plotting took {end_time - start_time:.2f} seconds")
 
-    # print("Plotting timeline...")
-    # # Generate 2D timeline
-    # plotter_timeline.setup_timeline(logger, path_data)
-    # plotter_timeline.plot_timeline(timeline_path)
-    #plotter._print_node_events()
+    print("Plotting timeline...")
+    # Generate 2D timeline
+    plotter_timeline.setup_timeline(logger, path_data)
+    plotter_timeline.plot_timeline(timeline_path)
+    #plotter_timeline._print_node_events()
         
-    for event in logger.events:
-        print(event)
-        print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
-              f"Info: {event.info}")
-        if event.type == nocsim.EventType.START_COMPUTATION:
-            print(f"Node ID: {event.info.node}")
-        elif event.type == nocsim.EventType.OUT_TRAFFIC:
-            print(f"History: {event.info.history}")
-        elif event.type == nocsim.EventType.START_RECONFIGURATION:
-            print("-------------------")
-            print(f"Found: {event.type}")
-            print("-------------------")
-        else:
-            print(f"I don't know how to handle this event: {event.type}")
-    print("-------------------")
+    # for event in logger.events:
+    #     print(event)
+    #     print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+    #           f"Info: {event.info}")
+    #     # if event.type == nocsim.EventType.START_COMPUTATION:
+    #     #     print(f"Node ID: {event.info.node}")
+    #     # elif event.type == nocsim.EventType.OUT_TRAFFIC:
+    #     #     print(f"History: {event.info.history}")
+    #     # elif event.type == nocsim.EventType.START_RECONFIGURATION:
+    #     #     print("-------------------")
+    #     #     print(f"Found: {event.type}")
+    #     #     print("-------------------")
+    #     # else:
+    #     #     print(f"I don't know how to handle this event: {event.type}")
+    # print("-------------------")
 
 
 

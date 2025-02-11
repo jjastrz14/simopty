@@ -8,8 +8,9 @@
             "num_vcs" : 16,
             "user_defined_traffic" : 1,
             "watch_out" : "-",
+            "logger": 1,
             "reconfiguration": 1,
             "reconf_cycles": 1,
-            "max_pe_mem": 11500
+            "max_pe_mem": 25000
         }
 }
