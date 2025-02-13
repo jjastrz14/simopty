@@ -112,8 +112,8 @@ if __name__ == "__main__":
     processors = list(range(6))
     config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
     # results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
-    results, logger = stub.run_simulation("config_files/runs/test_run5.json", verbose = True)
-    # results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
+    # results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
+    results, logger = stub.run_simulation("config_files/runs/all_time_shortest_path_test_model_2.json", verbose = True)
     print(results)
     print(logger.print_events())
     # # print(logger.events[1].info.history[0].rsource)
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     # # print(logger.events[1].info.history[1].end)
     # # print(logger.events[1].info)
 
-    NoCPlotter().plot(logger, 10 ,"config_files/runs/test_run5.json", "visual/NoC_simulation_result.gif")
+    NoCPlotter().plot(logger, 10 ,"config_files/runs/all_time_shortest_path_test_model_2.json", "visual/NoC_simulation_result.gif")
     
 
     # Define a Optimization object
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     # # plot_graph(task_graph)
 
     # grid = dm.Grid()
-    # grid.init(6, 2, dm.Topology.TORUS)
+    # grid.init(3, 2, dm.Topology.TORUS)
 
     # params = op.ACOParameters(
     #     n_ants = 1,
@@ -194,10 +194,10 @@ if __name__ == "__main__":
 
     # shortest = opt.run(once_every=1, show_traces= False)
     # print(shortest[1])
-    # print(opt.path_length(shortest[1], verbose = True))
-    # # Load the statistics and plot the results
-    # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
-    # print(stats)
+    # print(opt.path_length(shortest[0], verbose = True))
+    # # # Load the statistics and plot the results
+    # # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
+    # # print(stats)
 
 
 

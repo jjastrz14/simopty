@@ -842,9 +842,10 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, layers.Flatten):
         #check the previous layer
         prev_layer = layer._inbound_nodes[0].inbound_layers
-        return _adaptive_parsel(prev_layer)
+        split_tuple =  _adaptive_parsel(prev_layer)
+        return split_tuple
     elif layer.name == "max_pooling2d":
-        return 2,1,1
+        return 2,2,2
     elif isinstance(layer, layers.Add):
         return 1,1,1
     elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
@@ -852,11 +853,11 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
         return 0,1,1
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return 0,1,1
+        return 0,1,2
     elif isinstance(layer, layers.BatchNormalization):
-        return 0,2,1
+        return 0,2,2
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return 2,1,1
+        return 2,2,2
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
         return 1,1,1
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
@@ -904,8 +905,8 @@ def _build_spatial_deps(partitions_layer1 : List[PartitionInfo], partitions_laye
                                 deps[(p1.id, p2.id)] += overlap
                             else:
                                 deps[(p1.id, p2.id)] = overlap
-            else:
-                # Dense layers
+            elif len(p1.out_bounds[0]) == 1 and len(p2.in_bounds[0]) == 1:
+                # 1D layers
                 # OSS: for the dense layers, depependencies are always present between the partitions of a layer and the partitions of the next layer,
                 # in partitcular, the communication size is equal to the number of output neurons of the partition of the first layer
                 overlap = p1.out_bounds[1][0] - p1.out_bounds[0][0]
@@ -914,7 +915,21 @@ def _build_spatial_deps(partitions_layer1 : List[PartitionInfo], partitions_laye
                         deps[(p1.id, p2.id)] += overlap
                     else:
                         deps[(p1.id, p2.id)] = overlap
-            
+            elif len(p1.out_bounds[0]) > 1 and len(p2.in_bounds[0]) == 1:
+                # Border case: 2D layer -> 1D layer
+                # in this case, we assume that all the outputs of the 2D layer are connected to the 1D layer
+                
+                overlap = (p1.out_bounds[1][0] - p1.out_bounds[0][0]) * (p1.out_bounds[1][1] - p1.out_bounds[0][1])
+                overlap *= p1.out_ch[1] - p1.out_ch[0]
+                if overlap >0:
+                    input_size = p2.in_bounds[1][0] - p2.in_bounds[0][0]
+                    assert (overlap == input_size), "Invalid partitioning for the 2D -> 1D layer"
+                    if deps.get((p1.id, p2.id)) is not None:
+                        deps[(p1.id, p2.id)] += overlap
+                    else:
+                        deps[(p1.id, p2.id)] = overlap
+            else :
+                raise Exception("Spatial dependencies for 1D -> 2D layers not implemented")
 
     return deps
      
@@ -980,27 +995,27 @@ def _build_layer_deps(model: keras.Model)->Set:
                 # check the type of the inbound layer
                 # if the layer is a Flatten type, we skip it
 
-                # if isinstance(in_layer, layers.Flatten):
-                #     continue
+                if isinstance(in_layer, layers.Flatten):
+                    continue
 
                 deps.add((dep_id, in_layer, layer_out))
         else:
             in_layer = node_in.inbound_layers
-            # if isinstance(in_layer, layers.Flatten):
-            #     return
+            if isinstance(in_layer, layers.Flatten):
+                return
             deps.add(( dep_id, in_layer, layer_out))
 
 
     for layer in model.layers:
         # check if the layer is layer.Flatten type: if so, we create dependencies between its
         # input and output nodes
-        # if isinstance(layer, layers.Flatten):
-        #     for node_in in layer._inbound_nodes:
-        #         for node_out in layer._outbound_nodes:
-        #             out_layer = node_out.outbound_layer # just one output layer
-        #             add_to_deps(node_in, out_layer, dependencies, dep_id)
-        #             dep_id += 1
-        # else:
+        if isinstance(layer, layers.Flatten):
+            for node_in in layer._inbound_nodes:
+                for node_out in layer._outbound_nodes:
+                    out_layer = node_out.outbound_layer # just one output layer
+                    add_to_deps(node_in, out_layer, dependencies, dep_id)
+                    dep_id += 1
+        else:
             for node in layer._inbound_nodes:
                 add_to_deps(node, layer, dependencies, dep_id)
                 dep_id += 1
@@ -1327,10 +1342,10 @@ def build_partitions(model: keras.Model, grouping: bool = True,verbose : bool = 
     # then proceed with the other layers
     for _, prev_layer, layer in sorted(layer_deps, key = lambda x: x[0]):
         # if the layer is a Flatten type, we can direclty skip it
-        # if isinstance(layer, layers.Flatten):
-        #     if verbose:
-        #         print("Skipping layer {}".format(layer.name))
-        #     continue
+        if isinstance(layer, layers.Flatten):
+            if verbose:
+                print("Skipping layer {}".format(layer.name))
+            continue
         spat, out_ch, in_ch = _adaptive_parsel(layer)
         partitions[layer.name] = _build_partitions_from_layer(layer, spat, out_ch, in_ch)
         

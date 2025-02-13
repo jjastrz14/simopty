@@ -33,7 +33,7 @@ class TaskGraph:
     EDGE_INFO = "Edge ID: {0}\nType: {1}\nData Size: {2}\nProcessing Time Required: {3}\nDependencies: {4}"
 
 
-    def __init__(self, source = 0, drain = 27):
+    def __init__(self, source = 0, drain = 8):
         self.graph = nx.DiGraph()
         self.SOURCE_POINT = source
         self.DRAIN_POINT = drain

@@ -10,6 +10,6 @@
             "watch_out" : "-",
             "reconfiguration": 1,
             "reconf_cycles": 1,
-            "max_pe_mem": 11500
+            "max_pe_mem": 11000
         }
 }
