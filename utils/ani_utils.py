@@ -725,8 +725,8 @@ class NoCTimelinePlotter(NoCPlotter):
             # Plot traffic events (blue)
             if events["traf"]:
                 self.ax2d.broken_barh(events["traf"], (node - 0.4, 0.8), facecolors='dodgerblue', label="Traffic", alpha=0.5)
-            # Plot traffic events (green)
-            if events["traf"]:
+            # Plot reconfiguration events (green)
+            if events["recon"]:
                 self.ax2d.broken_barh(events["recon"], (node - 0.4, 0.8), facecolors='limegreen', label="Reconfiguration", alpha=0.7)
         
         # Deduplicate legend entries

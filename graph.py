@@ -33,7 +33,7 @@ class TaskGraph:
     EDGE_INFO = "Edge ID: {0}\nType: {1}\nData Size: {2}\nProcessing Time Required: {3}\nDependencies: {4}"
 
 
-    def __init__(self, source = 0, drain = 27):
+    def __init__(self, source = 0, drain = 2):
         self.graph = nx.DiGraph()
         self.SOURCE_POINT = source
         self.DRAIN_POINT = drain
@@ -555,19 +555,21 @@ class TaskGraph:
         return list(self.edges.values())
 
 
-def model_to_graph(model, verbose = False):
+def model_to_graph(model, source, drain, grouping = True, verbose = False):
         """
         A function to create the depencency graph of the model that will be used for the simulation on the NoC.
 
         Args:
         - model : the model for which to create the dependency graph
+        - source : the source node of the NoC graph
+        - drain : the drain node of the NoC graph
 
         Returns:
         - a dependency graph of the model
         """
 
-        dep_graph = TaskGraph()
-        parts, deps = build_partitions(model)
+        dep_graph = TaskGraph(source, drain)
+        parts, deps = build_partitions(model, grouping = grouping, verbose = verbose)
 
         if verbose:
             print("Plotting the partitions and dependencies of the model...")
@@ -578,8 +580,8 @@ def model_to_graph(model, verbose = False):
         dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
         layer_id = 0
         # DIRTY FIX: the scaling factors should be included in restart rather than simopty
-        mem_scaling_factor = 64 # byte/flit
-        comp_scaling_factor = 100 # FLOPs per cycle
+        mem_scaling_factor = 64 # byte/flit (comment: I think it's 64 bits per a fleet)
+        comp_scaling_factor = 100 #100 # FLOPs per cycle
 
         # assign task ids to the partitions
         for layer, partitions in parts.items():

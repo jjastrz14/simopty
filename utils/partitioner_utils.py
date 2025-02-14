@@ -265,9 +265,9 @@ previous three, using some tuning parameters:
     - in_ch: the percentage of the input channels of the layer that will be assigned a single partition
 
 Using these parameters, we can define a custom partitioning strategy. In particular, choosing:
-    - in_sp = x, out_ch = 0, in_ch = 0: will result in a pure spatial partitioning, where x% of the input is assgned to a single partition
-    - in_sp = 0, out_ch = x, in_ch = 0: will result in a pure output channel partitioning, where x% of the output channels are assigned to a single partition
-    - in_sp = 0, out_ch = 0, in_ch = x: will result in a pure input channel partitioning, where x% of the input channels are assigned to a single partition
+    - in_sp = x, out_ch = 1, in_ch = 1: will result in a pure spatial partitioning, where x% of the input is assgned to a single partition
+    - in_sp = 0, out_ch = x, in_ch = 1: will result in a pure output channel partitioning, where x% of the output channels are assigned to a single partition
+    - in_sp = 0, out_ch = 1, in_ch = x: will result in a pure input channel partitioning, where x% of the input channels are assigned to a single partition
 
 * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = * = *
 """
@@ -289,7 +289,7 @@ class PE:
     # The space used to store in memory a single number (input/weights/output) (in bytes)
     single_num: int = 1
     # The size of the PE's memory (in bytes)
-    mem_size: int = 256000
+    mem_size: int = 256000              #maybe let's set it to 256 Ki bits
     # The amount of memory used by the PE (in bytes)
     mem_used: int = 0
 
@@ -836,7 +836,13 @@ def _adaptive_parsel(layer):
         '''
         pass
     
+    # Using these parameters, we can define a custom partitioning strategy. In particular, choosing:
+    # - in_sp = x, out_ch = 1, in_ch = 1: will result in a pure spatial partitioning, where x% of the input is assgned to a single partition
+    # - in_sp = 0, out_ch = x, in_ch = 1: will result in a pure output channel partitioning, where x% of the output channels are assigned to a single partition
+    # - in_sp = 0, out_ch = 1, in_ch = x: will result in a pure input channel partitioning, where x% of the input channels are assigned to a single partition
+    
     #2^splitting factor - number of partinions, just for the spatial partitioning
+    in_sp,out_ch,in_ch = 2, 1, 1
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
         return 0,1,1
@@ -851,21 +857,21 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
         return 0,1,1
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
-        return 0,1,1
+        return 0,1,1 #0 1 1
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return 0,1,1
+        return 0,1,1 #0 1 1
     elif isinstance(layer, layers.BatchNormalization):
-        return 0,2,1
+        return 0,1,1 #0 1 1
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return 2,1,1
+        return in_sp,out_ch,in_ch #2 1 1
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
-        return 1,1,1
+        return 1,1,1 # 1,1,1
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
-        return 1,1,1
+        return 1,1,1 # 1,1,1
     elif isinstance(layer, layers.Dropout):
-        return 0,1,1
+        return 0,1,1 # 0,1,1
     elif isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
-        return 1,1,1
+        return 2,2,2 
     else:
         raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))
 
