@@ -63,8 +63,8 @@ if __name__ == "__main__":
 
     plotter_timeline = NoCTimelinePlotter()
     plotter_3d_animation = NoCPlotter()
-    timeline_path = "visual/test_model_13_Feb_6.png"
-    gif_path = "visual/test_model_13_Feb_6.gif"
+    timeline_path = "visual/test.png"
+    gif_path = "visual/test.gif"
 
     print("Plotting timeline...")
     # Generate 2D timeline

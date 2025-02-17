@@ -40,7 +40,7 @@ def test_model(input_shape, verbose = False):
     x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
     x = layers.MaxPooling2D(pool_size=(2, 2))(x)
-    x = layers.Flatten()(x)
+    #x = layers.Flatten()(x)
     x = layers.Dense(64)(x)
     x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
     # # # # # print(split_spatial_dims(model.layers[2], 2))
     
-    n_proc = 6
+    n_proc = 2
     grid = dm.Grid()
     grid.init(n_proc, 2, dm.Topology.TORUS)
 
@@ -138,15 +138,15 @@ if __name__ == "__main__":
     #plot_graph(task_graph)
 
     params = op.ACOParameters(
-        n_ants = 100,
+        n_ants = 10,
         rho = 0.05,
         n_best = 1, #20,
-        n_iterations = 5,
+        n_iterations = 10,
         alpha = 1.,
         beta = 1.2,
     )
     
-    n_procs = 100 #n_processors shouldn't be greater than n_ants
+    n_procs = 10 #n_processors shouldn't be greater than n_ants
 
     print("Starting ACO...")
     opt = op.ParallelAntColony(n_procs, params, grid, task_graph)

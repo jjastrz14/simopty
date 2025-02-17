@@ -845,34 +845,34 @@ def _adaptive_parsel(layer):
     in_sp,out_ch,in_ch = 2, 1, 1
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
-        return 0,1,1
+        return in_sp,1,1
     elif isinstance(layer, layers.Flatten):
         #check the previous layer
         prev_layer = layer._inbound_nodes[0].inbound_layers
         split_tuple =  _adaptive_parsel(prev_layer)
         return split_tuple
     elif layer.name == "max_pooling2d":
-        return 2,2,2
+        return in_sp,1,1
     elif isinstance(layer, layers.Add):
-        return 1,1,1
+        return in_sp,1,1
     elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
-        return 0,1,1
+        return in_sp,1,1
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
-        return 0,1,1 #0 1 1
+        return in_sp,1,1 #0 1 1
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return 0,1,2
+        return in_sp,1,1
     elif isinstance(layer, layers.BatchNormalization):
-        return 0,2,2
+        return in_sp,1,1
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return 2,2,2
+        return in_sp,1,1
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
-        return 1,1,1 # 1,1,1
+        return in_sp,1,1 # 1,1,1
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
-        return 1,1,1 # 1,1,1
+        return in_sp,1,1 # 1,1,1
     elif isinstance(layer, layers.Dropout):
         return 0,1,1 # 0,1,1
     elif isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
-        return 2,2,2 
+        return in_sp,1,1
     else:
         raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))
 
