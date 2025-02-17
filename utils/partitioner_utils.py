@@ -445,17 +445,23 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
                     input_dims[dim] = min(input_dims[dim], original_input_dims[dim])
             
             else:
+                
                 # if the layer is Dense, we split the partition by considering only ouput neurons:
                 # each partition will have the same number of input neurons ( corresponding to the number of input neurons of the layer)
                 # and a subset of the output neurons
                 overlap = layer.kernel_size[0] //2  if layer in [layers.Conv1D, layers.DepthwiseConv1D] else 0
                 index = 0
 
+                s_x = 2**split_factor
                 input_dims[index] = (input_dims[index]+ s_x - 1) // s_x if s_x > 1 else input_dims[index]
                 output_dims[index] = (output_dims[index] + s_x - 1) // s_x if s_x > 1 else output_dims[index]
                 
                 input_dims[index] += overlap*2
                 input_dims[index] = min(input_dims[index], original_input_dims[index])
+
+                    
+            
+
 
 
         # Append the partitions to the new list:
@@ -465,6 +471,8 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
             out_x_0 = (_ % s_x) * output_dims[0] if s_x > 1 else 0
             if isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
                 in_bounds = [(0,), (original_input_dims[0],)]
+                if isinstance(layer, layers.Dense):
+                    weights_dims = [(original_input_dims[0], output_dims[0]),(output_dims[0],)] if layer.use_bias else [(original_input_dims[0], output_dims[0])]
             else:
                 in_bounds = [(max(in_x_0,0),), (min(in_x_0 + input_dims[0], original_input_dims[0]),)]
             out_bounds = [(max(out_x_0,0),), (min(out_x_0 + output_dims[0], original_output_dims[0]),)]
@@ -508,7 +516,8 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
     if partitions is None:
         input_shape = layer.input[0].shape if type(layer.input) == list else layer.input.shape
         output_shape = layer.output.shape
-        weights_dims = [w.shape for w in layer.get_weights()] #weight dimension do not change
+        weights_dims = [w.shape for w in layer.get_weights()] #weight dimension do not change for convolutional layers
+        
         
         input_dims = list(input_shape[1:])
         output_dims = list(output_shape[1:])
@@ -930,7 +939,6 @@ def _build_spatial_deps(partitions_layer1 : List[PartitionInfo], partitions_laye
                 overlap *= p1.out_ch[1] - p1.out_ch[0]
                 if overlap >0:
                     input_size = p2.in_bounds[1][0] - p2.in_bounds[0][0]
-                    assert (overlap == input_size), "Invalid partitioning for the 2D -> 1D layer"
                     if deps.get((p1.id, p2.id)) is not None:
                         deps[(p1.id, p2.id)] += overlap
                     else:
