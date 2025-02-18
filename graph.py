@@ -573,7 +573,7 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
 
         if verbose:
             print("Plotting the partitions and dependencies of the model...")
-            plot_partitions(parts, deps)
+            plot_partitions(parts, deps, namefile = 'test_conv.png')
             print("Done!")
 
         task_id = 0

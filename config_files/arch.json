@@ -11,6 +11,6 @@
             "logger" : 1,
             "reconfiguration": 1,
             "reconf_cycles": 1,
-            "max_pe_mem": 3500
+            "max_pe_mem": 3000
         }
 }

@@ -40,7 +40,7 @@ def test_model(input_shape, verbose = False):
     x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
     x = layers.MaxPooling2D(pool_size=(2, 2))(x)
-    #x = layers.Flatten()(x)
+    x = layers.Flatten()(x)
     x = layers.Dense(64)(x)
     x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
@@ -138,25 +138,31 @@ if __name__ == "__main__":
     #plot_graph(task_graph)
 
     params = op.ACOParameters(
-        n_ants = 10,
+        n_ants = 1,
         rho = 0.05,
-        n_best = 1, #20,
-        n_iterations = 10,
+        n_best = 20,
+        n_iterations = 2,
         alpha = 1.,
         beta = 1.2,
     )
     
-    n_procs = 10 #n_processors shouldn't be greater than n_ants
 
     print("Starting ACO...")
-    opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
-    #opt = op.AntColony(params, grid, task_graph) #there is some problems with single aco? 
-
-    # # # #shortest = opt.run_with_saves(once_every=1, show_traces= False) #run with init, middle and best saves
+    
+    opt = op.AntColony(params, grid, task_graph)
     shortest = opt.run(once_every=1, show_traces= False)
-    print(shortest[1])
-    print(opt.path_length(shortest[1], verbose = True))
-    opt.save_path_json(shortest[1], SAVE_DATA_DIR + "/test.json")
+    print(shortest[0])
+    print(opt.path_length(shortest[0], verbose = True))
+    opt.save_path_json(shortest[0], SAVE_DATA_DIR + "/test.json")
+
+    # n_procs = 100 #n_processors shouldn't be greater than n_ants
+    # #shortest = opt.run_with_saves(once_every=1, show_traces= False) #run with init, middle and best saves
+    # opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
+    # shortest = opt.run(once_every=1, show_traces= False)
+    # print(f"Print shortest[0]: {shortest[0]}")
+    # print(f"Best path of this run: {shortest[1]}")
+    # print(opt.path_length(shortest[1], verbose = True))
+    # opt.save_path_json(shortest[1], SAVE_DATA_DIR + "/test.json")
     print("After ACO...")
             
     # # # Load the statistics and plot the results

@@ -62,7 +62,8 @@ def plot_graph(graph, file_path = None):
         if file_path is not None:
             file_path = os.path.join(os.path.dirname(__file__), file_path)
             plt.savefig(file_path)
-        plt.show()
+        else:
+            plt.show()
 
 
 """
@@ -272,6 +273,17 @@ def plot_partitions(partitions, partitions_deps, namefile = 'visual/task_graph.p
                 edge = pydot.Edge(dep[0], dep[1], label = weight)
                 graph.add_edge(edge)
 
-    graph.write_png(namefile)
+    if namefile:
+        _, ext = os.path.splitext(namefile)
+        if ext == '.png':
+            graph.write_png(namefile)
+        elif ext == '.svg':
+            graph.write_svg(namefile)
+        elif ext == '.pdf':
+            graph.write_pdf(namefile)
+        else:
+            raise TypeError("File format not supported! Check the namefile parameter")
+    else:
+        raise ValueError("namefile parameter is required in order to save the plot")
 
 

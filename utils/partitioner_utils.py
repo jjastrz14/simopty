@@ -432,18 +432,21 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
         # Check the layer input shape
         if split_factor > 0:
             if len(input_dims) > 2:
+                #stride is not considered here?
+                #remember that overlap does not work if kernel_sizes are not equall
                 overlap = layer.kernel_size[0] //2  if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 0 # at this stage don't consider the stride
-            
+
+                #define percentages of the %IN parameter
                 input_dims[0] = (input_dims[0] + s_x - 1) // s_x if s_x > 1 else input_dims[0]
                 input_dims[1] = (input_dims[1] + s_y - 1) // s_y if s_y > 1 else input_dims[1]
                 output_dims[0] = (output_dims[0] + s_x - 1) // s_x if s_x > 1 else output_dims[0]
                 output_dims[1] = (output_dims[1] + s_y - 1) // s_y if s_y > 1 else output_dims[1]
 
                 # Add the overlap to the partition size 
+                #add overlappings through channels
                 for dim in range(len(input_dims)-1):
                     input_dims[dim] += overlap*2
                     input_dims[dim] = min(input_dims[dim], original_input_dims[dim])
-            
             else:
                 
                 # if the layer is Dense, we split the partition by considering only ouput neurons:
@@ -458,8 +461,9 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
                 
                 input_dims[index] += overlap*2
                 input_dims[index] = min(input_dims[index], original_input_dims[index])
-
-                    
+        else: 
+            # if the split factor is 0, we do not apply any spatial partitioning    
+            pass      
             
 
 
@@ -851,37 +855,37 @@ def _adaptive_parsel(layer):
     # - in_sp = 0, out_ch = 1, in_ch = x: will result in a pure input channel partitioning, where x% of the input channels are assigned to a single partition
     
     #2^splitting factor - number of partinions, just for the spatial partitioning
-    in_sp,out_ch,in_ch = 2, 1, 1
+    in_sp,out_ch,in_ch = 1, 1, 1
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
-        return in_sp,1,1
+        return 0,1,1
     elif isinstance(layer, layers.Flatten):
         #check the previous layer
         prev_layer = layer._inbound_nodes[0].inbound_layers
         split_tuple =  _adaptive_parsel(prev_layer)
         return split_tuple
     elif layer.name == "max_pooling2d":
-        return in_sp,1,1
+        return 1,1,1
     elif isinstance(layer, layers.Add):
-        return in_sp,1,1
+        return 1,1,1
     elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
-        return in_sp,1,1
+        return 4,4,4
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
-        return in_sp,1,1 #0 1 1
+        return 1,1,1 #0 1 1
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return in_sp,1,1
+        return 2,2,2
     elif isinstance(layer, layers.BatchNormalization):
-        return in_sp,1,1
+        return 4,4,4
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return in_sp,1,1
+        return 0,1,1
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
-        return in_sp,1,1 # 1,1,1
+        return 1,1,1 # 1,1,1
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
-        return in_sp,1,1 # 1,1,1
+        return 1,1,1 # 1,1,1
     elif isinstance(layer, layers.Dropout):
-        return 0,1,1 # 0,1,1
+        return 1,1,1 # 0,1,1
     elif isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
-        return in_sp,1,1
+        return 2,2,2
     else:
         raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))
 
@@ -1134,6 +1138,7 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
     On the other hand, if such approximation is not valid, we have basically a min cut problem with additional constraints:
     to solve this, we could use a greedy algorithm with dynamic programming.
     """
+    
 
     def compute_group_size(partitions_group: List[PartitionInfo]):
         """
@@ -1153,6 +1158,7 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
 
     # go over the partitions: for each partitions, check if that partition is the head (merger) of a group of partitions
     # if so, go down the chain of partitions and save them in a list
+    
     for layer_name, partitions_list in partitions.items():
         for p in partitions_list:
             if p.merger is True:
@@ -1167,46 +1173,48 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
                             break
                     to_group.append(next_p)
 
-    # check the total size of the group of partitions: if it is smaller than the memory constraints, we can keep the group as it is
-    # otherwise, we split the group
+                # check the total size of the group of partitions: if it is smaller than the memory constraints, we can keep the group as it is
+                # otherwise, we split the group
 
-    if compute_group_size(to_group) <= memory_constraints:
-        return 
-    else:
-        new_groups = []
-        cur_group = []
-        cur_group_size = 0
-        for p in to_group:
-            if compute_group_size([p]) > memory_constraints:
-                raise ValueError("Partition size is greater than the memory constraints of the PE")
-            cur_group_size += compute_group_size([p])
-            if cur_group_size <= memory_constraints:
-                cur_group.append(p)
-            else:
-                new_groups.append(cur_group)
-                cur_group = [p]
-                cur_group_size = compute_group_size([p])
-        new_groups.append(cur_group)
-
-        # now for each sub-group, we access the partitions and change the mergeable, merger and out_merging fields
-        # as follows:
-        # - if the partition is the first in the group, we set the mergeable field to False and the merger field to True
-        # - if the partition is the last in the group, we set the mergeable field to True and the out_merging field to None
-
-        for group in new_groups:
-            for p_id, p in enumerate(group):
-                if p_id == 0:
-                    p.mergeable = False
-                    p.merger = True
-                    p.out_merging = p.out_merging if len(group) > 1 else None
-                elif p_id == len(group) - 1:
-                    p.mergeable = True
-                    p.out_merging = None
+                if compute_group_size(to_group) <= memory_constraints:
+                    return 
                 else:
-                    p.mergeable = True
-                    p.merger = False
-                    # p.out_merging = group[p_id+1].id
+                    new_groups = []
+                    cur_group = []
+                    cur_group_size = 0
+                    for p in to_group:
+                        if compute_group_size([p]) > memory_constraints:
+                            raise ValueError("Partition size is greater than the memory constraints of the PE")
+                        cur_group_size += compute_group_size([p])
+                        if cur_group_size <= memory_constraints:
+                            cur_group.append(p)
+                        else:
+                            new_groups.append(cur_group)
+                            cur_group = [p]
+                            cur_group_size = compute_group_size([p])
+                    new_groups.append(cur_group)
 
+                    # now for each sub-group, we access the partitions and change the mergeable, merger and out_merging fields
+                    # as follows:
+                    # - if the partition is the first in the group, we set the mergeable field to False and the merger field to True
+                    # - if the partition is the last in the group, we set the mergeable field to True and the out_merging field to None
+
+                    for group in new_groups:
+                        for p_id, p in enumerate(group):
+                            if p_id == 0:
+                                p.mergeable = False
+                                p.merger = True
+                                p.out_merging = p.out_merging if len(group) > 1 else None
+                            elif p_id == len(group) - 1:
+                                p.mergeable = True
+                                p.out_merging = None
+                            else:
+                                p.mergeable = True
+                                p.merger = False
+                                # p.out_merging = group[p_id+1].id
+            else: 
+                continue
+        
         return 
 
 
@@ -1412,12 +1420,15 @@ def analyze_partition(partition):
     layer = partition.layer
     inputs_bounds = partition.in_bounds
     inputs_shape =[inputs_bounds[1][i] - inputs_bounds[0][i] for i in range(len(inputs_bounds[0]))] if len(inputs_bounds[0]) > 1 else [inputs_bounds[1][0] - inputs_bounds[0][0]]
-    tot_par_size += np.prod(inputs_shape)
+    print(inputs_shape)
+    tot_par_size += np.prod(inputs_shape)*(partition.in_ch[1] - partition.in_ch[0])
+    #print(f"Total size of par: {tot_par_size}")
     # prepend a 0 to the input shape to make it compatible to the hooks
     inputs_shape = [0] + inputs_shape
     outputs_bounds = partition.out_bounds
     outputs_shape = [outputs_bounds[1][i] - outputs_bounds[0][i] for i in range(len(outputs_bounds[0]))] if len(outputs_bounds[0]) > 1 else [outputs_bounds[1][0] - outputs_bounds[0][0]]
-    tot_par_size += np.prod(outputs_shape)
+    tot_par_size += np.prod(outputs_shape)*(partition.out_ch[1] - partition.out_ch[0])
+    #print(f"Total size of par: {tot_par_size}")
     # prepend a 0 to the output shape also
     outputs_shape = [0] + outputs_shape
     # Compute the FLOPs (and MACs) using the hook
@@ -1431,7 +1442,10 @@ def analyze_partition(partition):
             FLOPs += FLOPs_act
 
     for weight in partition.weights_shape:
+        #print(partition.weights_shape)
         tot_par_size += np.prod(weight)
+    
+    #print(f"Total size of par: {tot_par_size}")
 
     return MACs, FLOPs, tot_par_size
 
