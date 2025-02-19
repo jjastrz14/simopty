@@ -140,20 +140,21 @@ def _calc_batch_norm(layer, input_shape, output_shape):
 # Convolutional layers
 
 def _calc_conv(layer, input_shape, output_shape):
-    out_dims = output_shape[1:-1]
+
+    out_dims = output_shape[1:] #width, height, channels of the output
     out_channels = output_shape[-1]
     kernel_dims = layer.kernel_size
     in_channels = input_shape[-1]
     
-    
-    MACs = np.prod(kernel_dims) * np.prod(out_dims) * in_channels * out_channels
-    FLOPs = 2 * np.prod(kernel_dims) * np.prod(out_dims) * in_channels * out_channels
+    MACs = np.prod(kernel_dims)*in_channels*np.prod(out_dims)  
+    #here suppose that 1 MAC = 2 FLOPs
+    FLOPs = 2 * np.prod(kernel_dims)*in_channels*np.prod(out_dims)
     # Each output element gets a bias addition
     bias_flops = np.prod(output_shape[1:]) if layer.use_bias else 0
 
-    MACs += bias_flops//2
+    #Let's calculate bias as FLOPs
+    #MACs += bias_flops//2
     FLOPs += bias_flops
-
     return FLOPs, MACs
 
 def _calc_depthwise_conv(layer, input_shape, output_shape):
@@ -172,7 +173,8 @@ def _calc_depthwise_conv(layer, input_shape, output_shape):
     # Add bias contributions
     bias_flops = np.prod(output_shape[1:]) if layer.use_bias else 0
 
-    MACs += deph_flops//2 + bias_flops//2
+    #Let's calculate bias as FLOPs
+    #MACs += deph_flops//2 + bias_flops//2
     FLOPs += deph_flops + bias_flops
 
     return FLOPs, MACs
@@ -512,7 +514,7 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
             cur.set_id('spatial',  _ , partition.id if partition is not None else None)
             cur.set_split_factor('spatial', split_factor)
             new_partitions.append(cur)
-        
+            
         return new_partitions
 
 
@@ -521,7 +523,7 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
         input_shape = layer.input[0].shape if type(layer.input) == list else layer.input.shape
         output_shape = layer.output.shape
         weights_dims = [w.shape for w in layer.get_weights()] #weight dimension do not change for convolutional layers
-        
+
         
         input_dims = list(input_shape[1:])
         output_dims = list(output_shape[1:])
@@ -560,8 +562,9 @@ def _split_output_dims(layer, split_factor, partitions: Union[None, List[Partiti
     Returns:
     - a new PartitionInfo list 
     '''
-
-    # if the does not admit channels and the split factor is greater than 1, raise an error
+    assert split_factor >= 0, "Split factor cannot be negative"
+    
+    # if the does not admit output channels and the split factor is greater than 1, raise an error
     if len(layer.output.shape) < 3:
         return partitions
 
@@ -593,9 +596,17 @@ def _split_output_dims(layer, split_factor, partitions: Union[None, List[Partiti
             out_bounds = partition.out_bounds
             in_ch = partition.in_ch
 
-        basic_step = num_output_ch // split_factor
-        additions = num_output_ch % split_factor
-        partition_index = 0
+        #this implies split_factor > 0 
+        #if split_factor is bigger than number of output channels then below
+        #while is able to deal with it - partitons will be created up to number of output channels
+        if split_factor == 0:
+            return partitions
+        else:
+            basic_step = num_output_ch // split_factor
+            additions = num_output_ch % split_factor
+            partition_index = 0
+            
+        #print(f"Basic steps {basic_step} and additions {additions}")
 
         # patition the output channels and number of kernels
         while output_dims[-1] > 0:
@@ -673,6 +684,7 @@ def _split_input_dims(layer, split_factor, partitions: Union[None, List[Partitio
     Returns:
     - a new PartitionInfo list
     """
+    assert split_factor >= 0, "Split factor cannot be negative"
 
     # if the does not admit channels and the split factor is greater than 1, raise an error
     if len(layer.input.shape) < 3:
@@ -704,10 +716,13 @@ def _split_input_dims(layer, split_factor, partitions: Union[None, List[Partitio
             in_bounds = partition.in_bounds
             out_bounds = partition.out_bounds
             out_ch = partition.out_ch
-
-        basic_step = num_input_ch // split_factor
-        additions = num_input_ch % split_factor
-        partition_index = 0
+        
+        if split_factor == 0:
+            return partitions
+        else:
+            basic_step = num_input_ch // split_factor
+            additions = num_input_ch % split_factor
+            partition_index = 0
 
         # partition the input channels and number of kernels
         while input_dims[-1] > 0:
@@ -717,12 +732,16 @@ def _split_input_dims(layer, split_factor, partitions: Union[None, List[Partitio
             if ch_end - ch_start < 1 or ch_end > num_input_ch:
                 raise ValueError("Invalid partition for input channels, please increase the split factor")
             weights_temp = []
+            
             for i,weight in enumerate(weights_dims):
+                if len(weight) == 1 and split_factor == 1: #a bit dirty for bias when split factor is 1
+                    weights_temp.append(tuple(weight))  # Keep bias as-is
+                    continue
                 index = -2 if len(weight) > 2 else 0
                 weight[index] = ch_end - ch_start
                 weights_temp.append(tuple(weight))
-            
-
+   
+        
             cur = PartitionInfo(layer = layer,
                                 in_bounds = in_bounds,
                                 out_bounds = out_bounds,
@@ -877,7 +896,7 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, layers.BatchNormalization):
         return 4,4,4
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return 0,1,1
+        return 1,0,0
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
         return 1,1,1 # 1,1,1
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
@@ -1420,32 +1439,31 @@ def analyze_partition(partition):
     layer = partition.layer
     inputs_bounds = partition.in_bounds
     inputs_shape =[inputs_bounds[1][i] - inputs_bounds[0][i] for i in range(len(inputs_bounds[0]))] if len(inputs_bounds[0]) > 1 else [inputs_bounds[1][0] - inputs_bounds[0][0]]
-    print(inputs_shape)
     tot_par_size += np.prod(inputs_shape)*(partition.in_ch[1] - partition.in_ch[0])
-    #print(f"Total size of par: {tot_par_size}")
-    # prepend a 0 to the input shape to make it compatible to the hooks
-    inputs_shape = [0] + inputs_shape
+    #add channels of partition and adjust to hooks by None
+    inputs_shape = [None] + inputs_shape + [partition.in_ch[1] - partition.in_ch[0]]
+    
     outputs_bounds = partition.out_bounds
     outputs_shape = [outputs_bounds[1][i] - outputs_bounds[0][i] for i in range(len(outputs_bounds[0]))] if len(outputs_bounds[0]) > 1 else [outputs_bounds[1][0] - outputs_bounds[0][0]]
     tot_par_size += np.prod(outputs_shape)*(partition.out_ch[1] - partition.out_ch[0])
-    #print(f"Total size of par: {tot_par_size}")
-    # prepend a 0 to the output shape also
-    outputs_shape = [0] + outputs_shape
+    #add channels of partition and adjust to hooks by None
+    outputs_shape = [None] + outputs_shape + [partition.out_ch[1] - partition.out_ch[0]]
     # Compute the FLOPs (and MACs) using the hook
     if type(layer) in register_hooks:
         FLOPs, MACs = register_hooks[type(layer)](layer, inputs_shape, outputs_shape)
+
         # if the partitioned layer also has an activation function, we append also those FLOPs and MACs
         if hasattr(layer, "activation"):
             activation = layer.activation.__name__
             FLOPs_act, MACs_act = register_hooks[activation](layer, inputs_shape, outputs_shape)
             MACs += MACs_act
             FLOPs += FLOPs_act
+    else:
+        raise NameError("Layer type not supported in register hooks")
 
     for weight in partition.weights_shape:
-        #print(partition.weights_shape)
         tot_par_size += np.prod(weight)
-    
-    #print(f"Total size of par: {tot_par_size}")
+
 
     return MACs, FLOPs, tot_par_size
 
@@ -1501,7 +1519,7 @@ def analyze_ops(model: keras.Model, incl_info = False):
 
     # Create a PrettyTable instance
     table = pt.PrettyTable()
-    table.field_names = ["Layer", "Layer number"] + included_info + [ "FLOPs", "MACs"]
+    table.field_names = ["Layer", "Layer number"] + included_info + [ "MACs", "FLOPs"]
     total_parameters = 0
 
     # Iterate over layers and activations in the model

@@ -18,6 +18,7 @@ import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.layers as layers
 import tensorflow.keras.activations as activations
+import larq
 import graph as dg
 from graph import model_to_graph
 import domain as dm
@@ -43,13 +44,14 @@ def test_conv(input_shape, verbose = False):
     if verbose:
         summary = model.summary()
         print(f'shape of model: {x.shape}')
+        larq.models.summary(model, print_fn=None, include_macs=True)
     return model
-
 
 if __name__ == "__main__":
     
     
     model = test_conv((10, 10, 3), verbose = True)
+    analyze_ops(model,incl_info = False)
 
     n_proc = 2
     grid = dm.Grid()
