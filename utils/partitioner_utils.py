@@ -155,6 +155,7 @@ def _calc_conv(layer, input_shape, output_shape):
     #Let's calculate bias as FLOPs
     #MACs += bias_flops//2
     FLOPs += bias_flops
+
     return FLOPs, MACs
 
 def _calc_depthwise_conv(layer, input_shape, output_shape):
@@ -419,6 +420,8 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
     - a new PartitionInfo list
     '''
     
+    assert split_factor >= 0, "Split factor for Spatial splitting cannot be negative"
+    
 
     def _create_partitions(input_dims, output_dims, weights_dims, partition = None):
 
@@ -434,9 +437,8 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
         # Check the layer input shape
         if split_factor > 0:
             if len(input_dims) > 2:
-                #stride is not considered here?
                 #remember that overlap does not work if kernel_sizes are not equall
-                overlap = layer.kernel_size[0] //2  if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 0 # at this stage don't consider the stride
+                overlap = layer.kernel_size[0] // 2  if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 0 # at this stage don't consider the stride
 
                 #define percentages of the %IN parameter
                 input_dims[0] = (input_dims[0] + s_x - 1) // s_x if s_x > 1 else input_dims[0]
@@ -485,21 +487,21 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
 
             # check the validity of the partition
             if (out_bounds[1][0] - out_bounds[0][0] < 1) or (in_bounds[1][0] - in_bounds[0][0] < 1):
-                raise ValueError(f"Invalid partition for spatial dimensions, please increase the split factor for layer: {layer.name}")
+                raise ValueError(f"Invalid partition for spatial dimensions, please decrease the split factor for layer: {layer.name}")
 
             if len(input_dims) > 2 :
                 in_y_0 = (_ // s_x) * ((original_input_dims[1] + s_y - 1)// s_y) - overlap if s_y > 1 else 0
                 in_bounds = [(max(in_x_0, 0), max(in_y_0, 0)), (min(in_x_0 + input_dims[0], original_input_dims[0]), min(in_y_0 + input_dims[1], original_input_dims[1]))]
                 #check the validity of the partition
                 if in_bounds[1][1] - in_bounds[0][1] < 1:
-                    raise ValueError(f"Invalid partition for spatial dimensions, please increase the split factor for layer: {layer.name}")
+                    raise ValueError(f"Invalid partition for spatial dimensions, please decrease the split factor for layer: {layer.name}")
                 
             if len(output_dims) > 2:
                 out_y_0 = (_ // s_x) * output_dims[1] if s_y > 1 else 0
                 out_bounds = [(max(out_x_0, 0), max(out_y_0, 0)), (min(out_x_0 + output_dims[0], original_output_dims[0]), min(out_y_0 + output_dims[1], original_output_dims[1]))]
                 #check the validity of the partition
                 if out_bounds[1][1] - out_bounds[0][1] < 1:
-                    raise ValueError(f"Invalid partition for spatial dimensions, please increase the split factor for layer: {layer.name}")
+                    raise ValueError(f"Invalid partition for spatial dimensions, please decrease the split factor for layer: {layer.name}")
 
 
             cur = PartitionInfo(layer = layer, 
@@ -562,7 +564,7 @@ def _split_output_dims(layer, split_factor, partitions: Union[None, List[Partiti
     Returns:
     - a new PartitionInfo list 
     '''
-    assert split_factor >= 0, "Split factor cannot be negative"
+    assert split_factor > 0, "Split factor for Output splitting cannot be negative nor 0"
     
     # if the does not admit output channels and the split factor is greater than 1, raise an error
     if len(layer.output.shape) < 3:
@@ -599,12 +601,9 @@ def _split_output_dims(layer, split_factor, partitions: Union[None, List[Partiti
         #this implies split_factor > 0 
         #if split_factor is bigger than number of output channels then below
         #while is able to deal with it - partitons will be created up to number of output channels
-        if split_factor == 0:
-            return partitions
-        else:
-            basic_step = num_output_ch // split_factor
-            additions = num_output_ch % split_factor
-            partition_index = 0
+        basic_step = num_output_ch // split_factor
+        additions = num_output_ch % split_factor
+        partition_index = 0
             
         #print(f"Basic steps {basic_step} and additions {additions}")
 
@@ -615,7 +614,7 @@ def _split_output_dims(layer, split_factor, partitions: Union[None, List[Partiti
             ch_end = (partition_index + 1) * basic_step + min(partition_index + 1, additions)
             #check partition validity
             if ch_end - ch_start < 1 or ch_end > num_output_ch:
-                raise ValueError("Invalid partition for output channels, please increase the split factor")
+                raise ValueError("Invalid partition for output channels, please decrease the split factor")
             weights_temp = []
             for i,weight in enumerate(weights_dims):
                 index = -1
@@ -684,7 +683,7 @@ def _split_input_dims(layer, split_factor, partitions: Union[None, List[Partitio
     Returns:
     - a new PartitionInfo list
     """
-    assert split_factor >= 0, "Split factor cannot be negative"
+    assert split_factor > 0, "Split factor for Input splitting cannot be negative nor 0"
 
     # if the does not admit channels and the split factor is greater than 1, raise an error
     if len(layer.input.shape) < 3:
@@ -717,12 +716,10 @@ def _split_input_dims(layer, split_factor, partitions: Union[None, List[Partitio
             out_bounds = partition.out_bounds
             out_ch = partition.out_ch
         
-        if split_factor == 0:
-            return partitions
-        else:
-            basic_step = num_input_ch // split_factor
-            additions = num_input_ch % split_factor
-            partition_index = 0
+
+        basic_step = num_input_ch // split_factor
+        additions = num_input_ch % split_factor
+        partition_index = 0
 
         # partition the input channels and number of kernels
         while input_dims[-1] > 0:
@@ -730,7 +727,7 @@ def _split_input_dims(layer, split_factor, partitions: Union[None, List[Partitio
             ch_end = (partition_index + 1) * basic_step + min(partition_index + 1, additions)
             #check partition validity
             if ch_end - ch_start < 1 or ch_end > num_input_ch:
-                raise ValueError("Invalid partition for input channels, please increase the split factor")
+                raise ValueError("Invalid partition for input channels, please decrease the split factor")
             weights_temp = []
             
             for i,weight in enumerate(weights_dims):
@@ -831,7 +828,6 @@ def _adaptive_parsel(layer):
     def _split_fc(layer):
         '''
         A subroutine to split the dense layers: we employ only spatial.
-        
         '''
         # check the input shape of the layer
         input_shape = layer.input[0].shape if type(layer.input) == list else layer.input.shape
@@ -868,13 +864,18 @@ def _adaptive_parsel(layer):
         '''
         pass
     
-    # Using these parameters, we can define a custom partitioning strategy. In particular, choosing:
-    # - in_sp = x, out_ch = 1, in_ch = 1: will result in a pure spatial partitioning, where x% of the input is assgned to a single partition
-    # - in_sp = 0, out_ch = x, in_ch = 1: will result in a pure output channel partitioning, where x% of the output channels are assigned to a single partition
-    # - in_sp = 0, out_ch = 1, in_ch = x: will result in a pure input channel partitioning, where x% of the input channels are assigned to a single partition
+    def _equal_MACs_per_partition(layer):
+        '''
+        A subroutine to split the layers in such a way that the MACs are equally distributed among the partitions
+        '''
+        # check the input shape of the layer
+        input_shape = layer.input[0].shape if type(layer.input) == list else layer.input.shape
+        output_shape = layer.output.shape
+
+        pass
     
-    #2^splitting factor - number of partinions, just for the spatial partitioning
-    in_sp,out_ch,in_ch = 1, 1, 1
+    #2^splitting factor for spatial - number of partinions, just for the spatial partitioning
+   
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
         return 0,1,1
@@ -888,23 +889,24 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, layers.Add):
         return 1,1,1
     elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
-        return 4,4,4
+        return 1,1,1
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
-        return 1,1,1 #0 1 1
+        return 1,1,1 
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
         return 2,2,2
     elif isinstance(layer, layers.BatchNormalization):
         return 4,4,4
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return 1,0,0
+            # 0, 1, 1 min values
+        return 1,1,1
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
-        return 1,1,1 # 1,1,1
+        return 1,1,1 
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
-        return 1,1,1 # 1,1,1
+        return 1,1,1 
     elif isinstance(layer, layers.Dropout):
-        return 1,1,1 # 0,1,1
+        return 0,1,1 
     elif isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
-        return 2,2,2
+        return 1,1,1
     else:
         raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))
 

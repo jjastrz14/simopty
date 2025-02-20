@@ -570,12 +570,8 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
 
         dep_graph = TaskGraph(source, drain)
         parts, deps = build_partitions(model, grouping = grouping, verbose = verbose)
-        for p in parts.items():
-            print(p)
-            print(" ")
-        print(" ")
         
-        print(deps)
+        #print(deps)
         if verbose:
             print("Plotting the partitions and dependencies of the model...")
             plot_partitions(parts, deps, namefile = 'test_conv.png')

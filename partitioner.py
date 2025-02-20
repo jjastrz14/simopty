@@ -38,7 +38,9 @@ def test_conv(input_shape, verbose = False):
     
     inputs = layers.Input(shape=input_shape)
     x = layers.Conv2D(4, kernel_size=(3, 3), data_format="channels_last", activation=None) (inputs)
+    #x = layers.Conv2D(4, kernel_size=(3, 3), data_format="channels_last", activation=None) (x)
     model = keras.Model(inputs=inputs, outputs=x)
+    
     
     model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     if verbose:
@@ -68,9 +70,7 @@ if __name__ == "__main__":
                                 drain = drain, 
                                 grouping = False, 
                                 verbose=True)
-    
-    plot_graph(task_graph, file_path = "../task_graph.png")
-
+    #plot_graph(task_graph, file_path = "../task_graph.png")
 
 
 
