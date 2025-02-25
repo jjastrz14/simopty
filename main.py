@@ -57,6 +57,9 @@ def small_test_model(input_shape, verbose = False):
     
     inputs = layers.Input(shape=input_shape)
     x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (inputs)
+    x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
+    #x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
+    #x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
     model = keras.Model(inputs=inputs, outputs=x)
     
     model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
@@ -104,8 +107,8 @@ if __name__ == "__main__":
     # opt.ga_instance.plot_fitness()
     # print(shortest[0], 1/shortest[1])
 
-    model = test_model((28, 28, 1), verbose = True)
-    #model = small_test_model((28, 28, 1), verbose = True)
+    #model = test_model((28, 28, 1), verbose = True)
+    model = small_test_model((10, 10, 3), verbose = True)
     # # # # # model = load_model("ResNet50")
     # # # # # model = load_model("MobileNet")
     # # # # # model = load_model("MobileNetV2")
@@ -133,7 +136,7 @@ if __name__ == "__main__":
     
     task_graph = model_to_graph(model, source = source, 
                                 drain = drain, 
-                                grouping = True, 
+                                grouping = False, 
                                 verbose=True)
     #plot_graph(task_graph)
 
@@ -141,7 +144,7 @@ if __name__ == "__main__":
         n_ants = 1,
         rho = 0.05,
         n_best = 20,
-        n_iterations = 2,
+        n_iterations = 10,
         alpha = 1.,
         beta = 1.2,
     )
@@ -170,10 +173,10 @@ if __name__ == "__main__":
     # # # print(stats)
 
     # Create a SimulatorStub object
-    #stub = ss.SimulatorStub(EX_DIR)
+    stub = ss.SimulatorStub(EX_DIR)
 
     # Run the simulation
-    # processors = list(range(6))
+    processors = list(range(6))
     # # #config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
     # # results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
     # # results, logger = stub.run_simulation("config_files/dumps/dump.json", verbose = True)
@@ -181,18 +184,18 @@ if __name__ == "__main__":
     # # #path to save the data
     # path_data = SAVE_DATA_DIR + "/all_time_shortest_path.json"
     # #path_data = "config_files/test_recon.json"
-    # #path_data = "config_files/runs/test_run.json"
-    # results, logger = stub.run_simulation(path_data, verbose = False)
+    path_data = SAVE_DATA_DIR + "/test.json"
+    results, logger = stub.run_simulation(path_data, verbose = False)
     # print(results)
     
     # #Initialize plotter with timeline support
     # plotter_3d_animation = NoCPlotter()
-    # plotter_timeline = NoCTimelinePlotter()
+    plotter_timeline = NoCTimelinePlotter()
     
     # fps = 100
     # # # #paths
     # gif_path = "visual/test.gif"
-    # timeline_path = "visual/test.png"
+    timeline_path = "test_recon_batch.png"
     
     # start_time = time.time()
     # print("Plotting 3D animation...")
@@ -200,27 +203,34 @@ if __name__ == "__main__":
     # end_time = time.time()
     # print(f"3D animation plotting took {end_time - start_time:.2f} seconds")
 
-    # print("Plotting timeline...")
-    # # Generate 2D timeline
-    # plotter_timeline.setup_timeline(logger, path_data)
-    # plotter_timeline.plot_timeline(timeline_path)
-    # #plotter_timeline._print_node_events()
+    print("Plotting timeline...")
+    # Generate 2D timeline
+    plotter_timeline.setup_timeline(logger, path_data)
+    plotter_timeline.plot_timeline(timeline_path)
+    plotter_timeline._print_node_events()
         
-    # for event in logger.events:
-    #     print(event)
-    #     print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
-    #           f"Info: {event.info}")
-    #     # if event.type == nocsim.EventType.START_COMPUTATION:
-    #     #     print(f"Node ID: {event.info.node}")
-    #     # elif event.type == nocsim.EventType.OUT_TRAFFIC:
-    #     #     print(f"History: {event.info.history}")
-    #     # elif event.type == nocsim.EventType.START_RECONFIGURATION:
-    #     #     print("-------------------")
-    #     #     print(f"Found: {event.type}")
-    #     #     print("-------------------")
-    #     # else:
-    #     #     print(f"I don't know how to handle this event: {event.type}")
-    # print("-------------------")
+    for event in logger.events:
+        #print(event)
+        #print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+              #f"Info: {event.info}")
+        if event.type == nocsim.EventType.START_COMPUTATION:
+            print(f"Type: {event.type}, Event info: {event.info}")
+            print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")
+        elif event.type == nocsim.EventType.END_COMPUTATION:
+            print(f"Type: {event.type}, Event info: {event.info}")
+            print(f"Node ID: {event.info.node}, Add_info Node ID {event.additional_info}")
+        elif event.type == nocsim.EventType.OUT_TRAFFIC:
+            print(f"Type: {event.type}, Event info: {event.info}")
+            print(f"History: {event.info.history}")
+        elif event.type == nocsim.EventType.START_RECONFIGURATION:
+            print(f"Type: {event.type}, Event info: {event.info}")
+            print(f"Node ID: {event.additional_info}")
+        elif event.type == nocsim.EventType.END_RECONFIGURATION:
+            print(f"Type: {event.type}, Event info: {event.info}")
+            print(f"Add_info Node ID: {event.additional_info}")
+        else:
+            pass
+            #print(f"I don't know how to handle this event: {event.type}")
     print("Done!")
 
 

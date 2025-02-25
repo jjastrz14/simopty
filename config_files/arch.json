@@ -10,7 +10,9 @@
             "watch_out" : "-",
             "logger" : 1,
             "reconfiguration": 1,
-            "reconf_cycles": 1,
-            "max_pe_mem": 3000
+            "reconf_batch_size": 0,
+            "reconf_cycles": 1.0,
+            "max_pe_mem": 400,
+            "flit_size": 64
         }
 }

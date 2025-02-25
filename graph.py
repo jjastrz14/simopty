@@ -571,7 +571,6 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
         dep_graph = TaskGraph(source, drain)
         parts, deps = build_partitions(model, grouping = grouping, verbose = verbose)
         
-        #print(deps)
         if verbose:
             print("Plotting the partitions and dependencies of the model...")
             plot_partitions(parts, deps, namefile = 'test_conv.png')
@@ -580,6 +579,7 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
         task_id = 0
         dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
         layer_id = 0
+   
         # DIRTY FIX: the scaling factors should be included in restart rather than simopty
         mem_scaling_factor = 64 # byte/flit (comment: I think it's 64 bits per a fleet)
         comp_scaling_factor = 100 #100 # FLOPs per cycle

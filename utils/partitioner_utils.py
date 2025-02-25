@@ -437,20 +437,27 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
         # Check the layer input shape
         if split_factor > 0:
             if len(input_dims) > 2:
+                #TO DO consider stride
+                #TO DO consider padding
+                #padding = layer.padding if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 'valid'       
+                #strides = layer.strides if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else (1,1)
+                
                 #remember that overlap does not work if kernel_sizes are not equall
-                overlap = layer.kernel_size[0] // 2  if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 0 # at this stage don't consider the stride
-
+                assert layer.kernel_size[0] == layer.kernel_size[1], "The kernel size must be square for spatial partitioning"
+                overlap = layer.kernel_size[0] // 2  if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 0
+                
                 #define percentages of the %IN parameter
                 input_dims[0] = (input_dims[0] + s_x - 1) // s_x if s_x > 1 else input_dims[0]
                 input_dims[1] = (input_dims[1] + s_y - 1) // s_y if s_y > 1 else input_dims[1]
                 output_dims[0] = (output_dims[0] + s_x - 1) // s_x if s_x > 1 else output_dims[0]
                 output_dims[1] = (output_dims[1] + s_y - 1) // s_y if s_y > 1 else output_dims[1]
-
+            
                 # Add the overlap to the partition size 
                 #add overlappings through channels
                 for dim in range(len(input_dims)-1):
                     input_dims[dim] += overlap*2
                     input_dims[dim] = min(input_dims[dim], original_input_dims[dim])
+           
             else:
                 
                 # if the layer is Dense, we split the partition by considering only ouput neurons:
@@ -470,13 +477,12 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
             pass      
             
 
-
-
         # Append the partitions to the new list:
         granularity = 2**split_factor
         for _ in range(granularity):
             in_x_0 = (_ % s_x) * ((original_input_dims[0] + s_x - 1)// s_x) - overlap if s_x > 1 else 0
             out_x_0 = (_ % s_x) * output_dims[0] if s_x > 1 else 0
+
             if isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
                 in_bounds = [(0,), (original_input_dims[0],)]
                 if isinstance(layer, layers.Dense):
@@ -484,7 +490,7 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
             else:
                 in_bounds = [(max(in_x_0,0),), (min(in_x_0 + input_dims[0], original_input_dims[0]),)]
             out_bounds = [(max(out_x_0,0),), (min(out_x_0 + output_dims[0], original_output_dims[0]),)]
-
+            
             # check the validity of the partition
             if (out_bounds[1][0] - out_bounds[0][0] < 1) or (in_bounds[1][0] - in_bounds[0][0] < 1):
                 raise ValueError(f"Invalid partition for spatial dimensions, please decrease the split factor for layer: {layer.name}")
@@ -503,7 +509,6 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
                 if out_bounds[1][1] - out_bounds[0][1] < 1:
                     raise ValueError(f"Invalid partition for spatial dimensions, please decrease the split factor for layer: {layer.name}")
 
-
             cur = PartitionInfo(layer = layer, 
                                 in_bounds = in_bounds,
                                 out_bounds = out_bounds,
@@ -516,7 +521,7 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
             cur.set_id('spatial',  _ , partition.id if partition is not None else None)
             cur.set_split_factor('spatial', split_factor)
             new_partitions.append(cur)
-            
+           
         return new_partitions
 
 
@@ -898,7 +903,7 @@ def _adaptive_parsel(layer):
         return 4,4,4
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
             # 0, 1, 1 min values
-        return 1,1,1
+        return 0,1,3
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
         return 1,1,1 
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
