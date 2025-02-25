@@ -682,7 +682,7 @@ class NoCTimelinePlotter(NoCPlotter):
                     continue 
             ######### RECONFIGURATION #######
             elif event.type == nocsim.EventType.START_RECONFIGURATION:
-                node = event.info.node
+                node = event.additional_info
                 start = event.cycle
                 
                 # Find matching END_RECONFIGURATION with error handling
@@ -690,10 +690,10 @@ class NoCTimelinePlotter(NoCPlotter):
                     end_event = next(
                         e for e in logger.events 
                         if e.type == nocsim.EventType.END_RECONFIGURATION 
-                        and e.info.node == node
+                        and e.additional_info== node
                         and e.cycle > start  # Ensure valid duration
                     )
-                    duration = end_event.cycle - start #+ 1  # Inclusive duration, why not here? think about it!
+                    duration = end_event.cycle - start # Inclusive duration already embeded in cycles from logger
                     self.node_events[node]["recon"].append((start, duration))
                 except StopIteration:
                     print(f"Warning: No END_RECONFIGURATION found for node {node} at cycle {start}")
@@ -718,21 +718,58 @@ class NoCTimelinePlotter(NoCPlotter):
     def plot_timeline(self, filename):
         """Draw horizontal bars for events."""
         
-        for node, events in self.node_events.items():
-            # Plot computation events (red)
-            if events["comp"]:
-                self.ax2d.broken_barh(events["comp"], (node - 0.4, 0.8), facecolors='tomato', label="Computation")
-            # Plot traffic events (blue)
-            if events["traf"]:
-                self.ax2d.broken_barh(events["traf"], (node - 0.4, 0.8), facecolors='dodgerblue', label="Traffic", alpha=0.5)
-            # Plot reconfiguration events (green)
-            if events["recon"]:
-                self.ax2d.broken_barh(events["recon"], (node - 0.4, 0.8), facecolors='limegreen', label="Reconfiguration", alpha=0.7)
+        # for node, events in self.node_events.items():
+        #     # Plot computation events (red)
+        #     if events["comp"]:
+        #         self.ax2d.broken_barh(events["comp"], (node - 0.4, 0.8), facecolors='tomato', label="Computation")
+        #     # Plot traffic events (blue)
+        #     if events["traf"]:
+        #         self.ax2d.broken_barh(events["traf"], (node - 0.4, 0.8), facecolors='dodgerblue', label="Traffic", alpha=0.5)
+        #     # Plot reconfiguration events (green)
+        #     if events["recon"]:
+        #         self.ax2d.broken_barh(events["recon"], (node - 0.4, 0.8), facecolors='limegreen', label="Reconfiguration", alpha=0.7)
+        #     #elif len(self.node_events.items()) == 0:
+        #         #print((f"No reconfiguration events found for node {node}"))
+        #     #else: 
+        #         #raise RuntimeError(f"Something wrong with plot timeline function")
         
-        # Deduplicate legend entries
-        handles, labels = self.ax2d.get_legend_handles_labels()
-        unique_labels = dict(zip(labels, handles))
-        self.ax2d.legend(unique_labels.values(), unique_labels.keys())
+        # # Deduplicate legend entries
+        # handles, labels = self.ax2d.get_legend_handles_labels()
+        # unique_labels = dict(zip(labels, handles))
+        # self.ax2d.legend(unique_labels.values(), unique_labels.keys())
+        
+        #(key, color, label, alpha)
+        event_types = [
+        ('comp', 'tomato', 'Computation', 1.0), 
+        ('traf', 'dodgerblue', 'Traffic', 0.5),
+        ('recon', 'limegreen', 'Reconfiguration', 0.7)
+        ]
+    
+        # Track used labels to prevent duplicates in legend
+        used_labels = set()
+
+        for node, events in self.node_events.items():
+            has_events = False  # Flag to check if node has any events
+            
+            for event_key, color, label, alpha in event_types:
+                event_list = events.get(event_key, [])
+                if event_list:
+                    has_events = True
+                    # Use label only if it hasn't been used before
+                    current_label = label if label not in used_labels else None
+                    self.ax2d.broken_barh(
+                        event_list,
+                        (node - 0.4, 0.8),
+                        facecolors=color,
+                        label=current_label,
+                        alpha=alpha
+                    )
+                    if current_label:
+                        used_labels.add(label)
+            
+            # Handle nodes with no events
+            if not has_events:
+                print(f"No events found for node {node}")
         
         # Set y-ticks to node IDs
         self.ax2d.set_yticks(range(len(self.points[1])))
