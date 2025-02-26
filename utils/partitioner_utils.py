@@ -876,8 +876,12 @@ def _adaptive_parsel(layer):
         # check the input shape of the layer
         input_shape = layer.input[0].shape if type(layer.input) == list else layer.input.shape
         output_shape = layer.output.shape
+        
+        sp = 0
+        out_ch = 1
+        in_ch = 1
 
-        pass
+        return sp, out_ch, in_ch
     
     #2^splitting factor for spatial - number of partinions, just for the spatial partitioning
    
@@ -898,9 +902,9 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
         return 1,1,1 
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return 2,2,2
+        return 1,1,1
     elif isinstance(layer, layers.BatchNormalization):
-        return 4,4,4
+        return 1,1,1
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
             # 0, 1, 1 min values
         return 0,1,3

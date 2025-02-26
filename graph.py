@@ -558,6 +558,9 @@ class TaskGraph:
 def model_to_graph(model, source, drain, grouping = True, verbose = False):
         """
         A function to create the depencency graph of the model that will be used for the simulation on the NoC.
+        Tasks_ids and dependencies_ids which you can find in the json are numbered like: 
+        - tasks: 0 to n-1, where n is number of tasks (equivalent to COMP_OPs)
+        - dependencies: from n 
 
         Args:
         - model : the model for which to create the dependency graph
@@ -566,6 +569,8 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
 
         Returns:
         - a dependency graph of the model
+        
+        TO DO: partition input and define several drain points depending on the input partitionings
         """
 
         dep_graph = TaskGraph(source, drain)
@@ -573,11 +578,13 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
         
         if verbose:
             print("Plotting the partitions and dependencies of the model...")
-            plot_partitions(parts, deps, namefile = 'test_conv.png')
+            plot_partitions(parts, deps, namefile = 'visual/task_graph.png')
             print("Done!")
-
+        
+        #taks id from 0 to n-1
+        #dep id from n, defined below
         task_id = 0
-        dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
+        #dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
         layer_id = 0
    
         # DIRTY FIX: the scaling factors should be included in restart rather than simopty
@@ -617,6 +624,8 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
                     dep_graph.add_task_fully_qualified(id=partition.task_id, type = "COMP_OP", layer_id = partition.layer_id, size = task_size, weight_size= weight_size,input_range=input_range,output_range=output_range,ct_required= computing_time, dep = [])
                     task_id += 1
             layer_id += 1
+            
+        dep_id = task_id + 1
 
         for key, value in deps.items():
             partitions1 = parts[key[0]]

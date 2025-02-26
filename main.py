@@ -58,8 +58,8 @@ def small_test_model(input_shape, verbose = False):
     inputs = layers.Input(shape=input_shape)
     x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (inputs)
     x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
-    #x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
-    #x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
+    x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
+    x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
     model = keras.Model(inputs=inputs, outputs=x)
     
     model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
@@ -144,7 +144,7 @@ if __name__ == "__main__":
         n_ants = 1,
         rho = 0.05,
         n_best = 20,
-        n_iterations = 10,
+        n_iterations = 1,
         alpha = 1.,
         beta = 1.2,
     )
@@ -189,13 +189,13 @@ if __name__ == "__main__":
     # print(results)
     
     # #Initialize plotter with timeline support
-    # plotter_3d_animation = NoCPlotter()
+    plotter_3d_animation = NoCPlotter()
     plotter_timeline = NoCTimelinePlotter()
     
-    # fps = 100
-    # # # #paths
-    # gif_path = "visual/test.gif"
-    timeline_path = "test_recon_batch.png"
+    fps = 100
+    # # #paths
+    gif_path = "visual/test.gif"
+    timeline_path = "visual/test_recon_batch.png"
     
     # start_time = time.time()
     # print("Plotting 3D animation...")
@@ -207,30 +207,38 @@ if __name__ == "__main__":
     # Generate 2D timeline
     plotter_timeline.setup_timeline(logger, path_data)
     plotter_timeline.plot_timeline(timeline_path)
-    plotter_timeline._print_node_events()
+    #plotter_timeline._print_node_events()
+
+    print("Plotting combined visualisation...")
+    # Create synchronized animation
+    animator = SynchronizedNoCAnimator(plotter_3d_animation, plotter_timeline, logger, path_data)
+    animator.create_animation("visual/combined_animation.mp4")
         
-    for event in logger.events:
-        #print(event)
-        #print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
-              #f"Info: {event.info}")
-        if event.type == nocsim.EventType.START_COMPUTATION:
-            print(f"Type: {event.type}, Event info: {event.info}")
-            print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")
-        elif event.type == nocsim.EventType.END_COMPUTATION:
-            print(f"Type: {event.type}, Event info: {event.info}")
-            print(f"Node ID: {event.info.node}, Add_info Node ID {event.additional_info}")
-        elif event.type == nocsim.EventType.OUT_TRAFFIC:
-            print(f"Type: {event.type}, Event info: {event.info}")
-            print(f"History: {event.info.history}")
-        elif event.type == nocsim.EventType.START_RECONFIGURATION:
-            print(f"Type: {event.type}, Event info: {event.info}")
-            print(f"Node ID: {event.additional_info}")
-        elif event.type == nocsim.EventType.END_RECONFIGURATION:
-            print(f"Type: {event.type}, Event info: {event.info}")
-            print(f"Add_info Node ID: {event.additional_info}")
-        else:
-            pass
-            #print(f"I don't know how to handle this event: {event.type}")
+    # for event in logger.events:
+    #     #print(event)
+    #     #print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+    #           #f"Info: {event.info}")
+    #     if event.type == nocsim.EventType.START_COMPUTATION:
+    #         print(f"Type: {event.type}, Event info: {event.info}")
+    #         print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")
+    #     elif event.type == nocsim.EventType.END_COMPUTATION:
+    #         print(f"Type: {event.type}, Event info: {event.info}")
+    #         print(f"Node ID: {event.info.node}, Add_info Node ID {event.additional_info}")
+    #     elif event.type == nocsim.EventType.OUT_TRAFFIC:
+    #         print(f"Type: {event.type}, Event info: {event.info}")
+    #         print(f"History: {event.info.history}")
+    #     elif event.type == nocsim.EventType.IN_TRAFFIC:
+    #         print(f"Type: {event.type}, Event info: {event.info}")
+    #         print(f"History: {event.info.history}")
+    #     elif event.type == nocsim.EventType.START_RECONFIGURATION:
+    #         print(f"Type: {event.type}, Event info: {event.info}")
+    #         print(f"Node ID: {event.additional_info}")
+    #     elif event.type == nocsim.EventType.END_RECONFIGURATION:
+    #         print(f"Type: {event.type}, Event info: {event.info}")
+    #         print(f"Add_info Node ID: {event.additional_info}")
+    #     else:
+    #         pass
+    #         #print(f"I don't know how to handle this event: {event.type}")
     print("Done!")
 
 

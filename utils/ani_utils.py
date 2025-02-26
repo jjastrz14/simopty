@@ -634,8 +634,11 @@ class NoCTimelinePlotter(NoCPlotter):
         self.max_cycle = logger.events[-1].cycle
 
     def _preprocess_events(self, logger):
-        """Extract computation/traffic events per node."""
-        self.node_events = {i: {"comp": [], "traf": [], "recon": []} for i in range(len(self.points[1]))}
+        """Extract computation/traffic events per node.
+           Information about Computing, Traffic (out and in) and Reconfiguration 
+           is collected from the logger
+        """
+        self.node_events = {i: {"comp": [], "traf_out": [], "traf_in": [], "recon": []} for i in range(len(self.points[1]))}
     
         # Process computation events
         for event in logger.events:
@@ -659,27 +662,38 @@ class NoCTimelinePlotter(NoCPlotter):
                     continue 
             ######### TRAFFIC #######    
             elif event.type == nocsim.EventType.OUT_TRAFFIC:
+                #the same information is stored in OUT_TRAFFIC and IN_TRAFFIC
+                #note from Edoardo: because it is used to record when the packet actually arrives in the chronologiacal log: both events (OUT_TRAFFIC and IN_TRAFFIC) point to the same info, which records the hystory of the related traffic, whose TrafficEventInfo is also pointed by both
+                #Here we want to collect: sending node, receiving node, time of sending, time of receiving
+                #Communication between the nodes is denoted with different collor
+                
                 id_message = event.additional_info
                 communication_type = event.ctype #comunication type of the event
                 start = event.cycle
-                originating_node = event.info.history[0].rsource
+                sending_node = event.info.source
+                receiving_node = event.info.dest
                 
-                # Find matching IN_TRAFFIC with error handling
-                try:
-                    end_event = next(
-                        e for e in logger.events 
-                        if e.type == nocsim.EventType.IN_TRAFFIC 
-                        and e.additional_info == id_message
-                        and e.ctype == communication_type
-                        and e.cycle > start  # Ensure valid duration
-                    )
-                    duration = end_event.cycle - start + 1  # Inclusive duration
-                    
-                    # Use the ORIGINATING NODE (first history entry's rsource) as the node ID
-                    self.node_events[originating_node]["traf"].append((start, duration))
-                except StopIteration:
-                    print(f"Warning: No IN_TRAFFIC  found for id message {id_message}  with communication type {communication_type} at cycle {start}")
-                    continue 
+                duration = 0
+                for history_bit in event.info.history:
+                    if history_bit.start >= start and history_bit.end >= start:
+                        
+                        if history_bit.rsource == history_bit.rsink == sending_node:
+                            duration = history_bit.end - history_bit.start + 1
+                            self.node_events[history_bit.rsource]["traf_out"].append((history_bit.start, duration))
+                            
+                        elif history_bit.rsource == history_bit.rsink == receiving_node:
+                            duration = history_bit.end - history_bit.start + 1
+                            self.node_events[history_bit.rsink]["traf_in"].append((history_bit.start, duration))
+                        
+                        elif history_bit.rsource != history_bit.rsink:
+                            duration = history_bit.end - history_bit.start + 1
+                            self.node_events[history_bit.rsource]["traf_out"].append((history_bit.start, duration))
+                            self.node_events[history_bit.rsink]["traf_in"].append((history_bit.start, duration))
+                        else: 
+                            raise ValueError(f"Error: I don't know what to do with this history bit {history_bit} of {event} ")
+                    else:
+                        raise ValueError(f"Error: No history bit found for OUT_TRAFFIC event at cycle {start}")
+            
             ######### RECONFIGURATION #######
             elif event.type == nocsim.EventType.START_RECONFIGURATION:
                 node = event.additional_info
@@ -707,41 +721,23 @@ class NoCTimelinePlotter(NoCPlotter):
     
     def _print_node_events(self):
         """Print event data for debugging."""
-        
+        #node_events[node]["comp"]
         for node, events in self.node_events.items():
             print(f"Node {node}:")
-            print(f"Computation events: {events['comp']}")
-            print(f"Traffic events: {events['traf']}")
-            print(f"Reconfiguration events: {events['recon']}")
+            print(f"Computation events and duration: {events['comp']}")
+            print(f"Traffic events IN and duration: {events['traf_in']}")
+            print(f"Traffic events OUT and duration: {events['traf_out']}")
+            print(f"Reconfiguration events and duration: {events['recon']}")
             print()
 
     def plot_timeline(self, filename):
         """Draw horizontal bars for events."""
         
-        # for node, events in self.node_events.items():
-        #     # Plot computation events (red)
-        #     if events["comp"]:
-        #         self.ax2d.broken_barh(events["comp"], (node - 0.4, 0.8), facecolors='tomato', label="Computation")
-        #     # Plot traffic events (blue)
-        #     if events["traf"]:
-        #         self.ax2d.broken_barh(events["traf"], (node - 0.4, 0.8), facecolors='dodgerblue', label="Traffic", alpha=0.5)
-        #     # Plot reconfiguration events (green)
-        #     if events["recon"]:
-        #         self.ax2d.broken_barh(events["recon"], (node - 0.4, 0.8), facecolors='limegreen', label="Reconfiguration", alpha=0.7)
-        #     #elif len(self.node_events.items()) == 0:
-        #         #print((f"No reconfiguration events found for node {node}"))
-        #     #else: 
-        #         #raise RuntimeError(f"Something wrong with plot timeline function")
-        
-        # # Deduplicate legend entries
-        # handles, labels = self.ax2d.get_legend_handles_labels()
-        # unique_labels = dict(zip(labels, handles))
-        # self.ax2d.legend(unique_labels.values(), unique_labels.keys())
-        
         #(key, color, label, alpha)
         event_types = [
         ('comp', 'tomato', 'Computation', 1.0), 
-        ('traf', 'dodgerblue', 'Traffic', 0.5),
+        ('traf_out', 'dodgerblue', 'Traffic Out', 0.5),
+        ('traf_in', 'slateblue', 'Traffic In', 0.5),
         ('recon', 'limegreen', 'Reconfiguration', 0.7)
         ]
     
@@ -791,11 +787,161 @@ class NoCTimelinePlotter(NoCPlotter):
             self.ax2d.axhline(y=node - 0.4, color='grey', linestyle='--', linewidth=0.5)
             self.ax2d.axhline(y=node + 0.4, color='grey', linestyle='--', linewidth=0.5)
 
+        self.ax2d.legend(
+        #loc='upper right',
+        #bbox_to_anchor=(1.17, 1.0),
+        #borderaxespad=0.0,
+        #fontsize='small',
+        title='Event Types',
+        title_fontsize='medium',
+        frameon=True
+        )
         if filename: 
             self.fig2d.savefig(filename, dpi=300)
             print(f"Timeline graph saved to {filename}")
+            
+            
+class SynchronizedNoCAnimator:
+    """Handles synchronized 3D NoC + 2D timeline animation."""
+    
+    def __init__(self, noc_plotter, timeline_plotter, logger, config_file):
+        self.noc_plotter = noc_plotter
+        self.timeline_plotter = timeline_plotter
+        self.logger = logger
+        self.config_file = config_file
+        self.current_cycle = 0
+        self.max_cycle = logger.events[-1].cycle
+        
+        # Animation state
+        self.events_pointer = 0
+        self.current_events = set()
+        
+        # Create combined figure
+        self.fig = plt.figure(figsize=(20, 8))
+        self.ax3d = self.fig.add_subplot(121, projection='3d')
+        self.ax2d = self.fig.add_subplot(122)
+        
+        # Initialize visualizations
+        self._initialize_plotters()
+        self._add_timeline_elements()
 
+    def _initialize_plotters(self):
+        """Initialize both visualizations using existing methods"""
+        # Initialize 3D plot
+        self.noc_plotter.init(self.config_file)
+        self.noc_plotter.fig = self.fig
+        self.noc_plotter.ax = self.ax3d
+        self.noc_plotter.plot_connections()
+        self.noc_plotter.annotate_points()
+        self.noc_plotter.plot_nodes(self.noc_plotter.points[0])
+        self.noc_plotter.plot_pes(self.noc_plotter.points[1])
+        self.noc_plotter.plot_reconf(self.noc_plotter.points[2])
 
+        # Initialize timeline
+        self.timeline_plotter.setup_timeline(self.logger, self.config_file)
+        self.timeline_plotter.ax2d = self.ax2d
+        self.timeline_plotter.plot_timeline(None)
 
+    def _add_timeline_elements(self):
+        """Add timeline animation elements"""
+        self.current_line = self.ax2d.axvline(x=0, color='red', linestyle='--', alpha=0.7)
+        self.ax2d.set_xlim(0, min(20, self.max_cycle))
+        self.fig.tight_layout()
 
+    def _process_events(self, cycle):
+        """Replicated event processing logic from original _update_graph"""
+        # Process events for current cycle
+        while self.events_pointer < len(self.logger.events) and cycle >= self.logger.events[self.events_pointer].cycle:
+            event = self.logger.events[self.events_pointer]
+            anti_events_map = {
+                nocsim.EventType.IN_TRAFFIC: nocsim.EventType.OUT_TRAFFIC,
+                nocsim.EventType.END_COMPUTATION: nocsim.EventType.START_COMPUTATION,
+                nocsim.EventType.END_RECONFIGURATION: nocsim.EventType.START_RECONFIGURATION,
+                nocsim.EventType.END_SIMULATION: nocsim.EventType.START_SIMULATION
+            }
+            
+            if event.type in anti_events_map.values():
+                self.current_events.add(self.events_pointer)
+            else:
+                event_type = anti_events_map[event.type]
+                additional_info = event.additional_info
+                ctype = event.ctype
+                to_remove = next(
+                    (e for e in self.current_events 
+                     if self.logger.events[e].type == event_type 
+                     and self.logger.events[e].additional_info == additional_info 
+                     and self.logger.events[e].ctype == ctype),
+                    None
+                )
+                if to_remove is not None:
+                    self.current_events.remove(to_remove)
+            self.events_pointer += 1
 
+    def _update_combined(self, frame):
+        """Combined update function for both visualizations"""
+        self.current_cycle = frame
+        
+        # Process events for current cycle
+        self._process_events(frame)
+        
+        # Update 3D visualization using original colorize methods
+        currently_active_nodes = set()
+        currently_active_pes_comp = set()
+        currently_active_pes_reconf = set()
+        currently_active_pes_traf = set()
+        currently_active_connections = set()
+
+        for event_idx in self.current_events:
+            event = self.logger.events[event_idx]
+            if event.type == nocsim.EventType.OUT_TRAFFIC:
+                for h in event.info.history:
+                    if h.start <= frame and h.end > frame:
+                        currently_active_nodes.add(h.rsource)
+                        currently_active_nodes.add(h.rsink)
+                        currently_active_connections.add(tuple(sorted([h.rsource, h.rsink])))
+                        if h.rsource == h.rsink:
+                            currently_active_pes_traf.add(h.rsource)
+                        break
+                    elif h.start > frame:
+                        currently_active_nodes.add(h.rsource)
+                        break
+            elif event.type == nocsim.EventType.START_COMPUTATION:
+                currently_active_pes_comp.add(event.info.node)
+            elif event.type == nocsim.EventType.START_RECONFIGURATION:
+                currently_active_pes_reconf.add(event.additional_info)
+
+        self.noc_plotter.colorize_nodes(currently_active_nodes)
+        self.noc_plotter.colorize_pes(currently_active_pes_comp, 
+                                    currently_active_pes_traf, 
+                                    currently_active_pes_reconf)
+        self.noc_plotter.colorize_connections(currently_active_connections)
+        self.noc_plotter.colorize_reconf(currently_active_pes_reconf)
+        
+        # Update timeline visualization
+        self.current_line.set_xdata([frame, frame])
+        if frame > 10:  # Pan viewport after initial cycles
+            self.ax2d.set_xlim(frame - 10, frame + 10)
+            
+        return [self.current_line]
+
+    def create_animation(self, filename, fps=30):
+        """Create and save synchronized animation"""
+        ani = FuncAnimation(
+            self.fig,
+            self._update_combined,
+            frames=range(self.max_cycle),
+            init_func=lambda: self.current_line,
+            interval=1000//fps,
+            blit=True
+        )
+
+        if filename:
+            ani.save(
+                filename,
+                writer='ffmpeg',
+                fps=fps,
+                extra_args=['-preset', 'veryslow', '-crf', '18'],
+                dpi=150,
+                savefig_kwargs={'facecolor': 'white'}
+            )
+            print(f"Combined animation saved to {filename}")
