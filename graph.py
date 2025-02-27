@@ -555,7 +555,7 @@ class TaskGraph:
         return list(self.edges.values())
 
 
-def model_to_graph(model, source, drain, grouping = True, verbose = False):
+def model_to_graph(model, source, drain, grouping = True, namefile_task_graph = 'visual/task_graph.png', verbose = False):
         """
         A function to create the depencency graph of the model that will be used for the simulation on the NoC.
         Tasks_ids and dependencies_ids which you can find in the json are numbered like: 
@@ -578,7 +578,7 @@ def model_to_graph(model, source, drain, grouping = True, verbose = False):
         
         if verbose:
             print("Plotting the partitions and dependencies of the model...")
-            plot_partitions(parts, deps, namefile = 'visual/task_graph.png')
+            plot_partitions(parts, deps, namefile = namefile_task_graph)
             print("Done!")
         
         #taks id from 0 to n-1

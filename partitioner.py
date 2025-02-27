@@ -14,10 +14,6 @@ given DNN model. The chosen library for this purpose is TensorFlow.
 
 """
 
-import tensorflow as tf
-import tensorflow.keras as keras
-import tensorflow.keras.layers as layers
-import tensorflow.keras.activations as activations
 import larq
 import graph as dg
 from graph import model_to_graph
@@ -32,45 +28,38 @@ from utils.partitioner_utils import *
 from utils.ani_utils import *
 from dataclasses import dataclass
 from utils.partitioner_utils import *
+import models 
 
 
-def test_conv(input_shape, verbose = False):
+def partitioner(model, n_pe = 2, source = 0, drain = 3):
     
-    inputs = layers.Input(shape=input_shape)
-    x = layers.Conv2D(4, kernel_size=(3, 3), data_format="channels_last", activation=None) (inputs)
-    x = layers.Conv2D(4, kernel_size=(3, 3), data_format="channels_last", activation=None) (x)
-    model = keras.Model(inputs=inputs, outputs=x)
-    
-    
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    if verbose:
-        summary = model.summary()
-        print(f'shape of model: {x.shape}')
-        larq.models.summary(model, print_fn=None, include_macs=True)
-    return model
-
-if __name__ == "__main__":
-    
-    
-    model = test_conv((10, 10, 3), verbose = True)
-    analyze_ops(model,incl_info = False)
-
-    n_proc = 2
     grid = dm.Grid()
-    grid.init(n_proc, 2, dm.Topology.TORUS)
+    grid.init(n_pe, 2, dm.Topology.TORUS)
 
-    drain = 3
-    source = 0 #coś tu jest nie tak kiedy drain and source are the same
+    #source and drain should be defined in restart!
+    #coś tu jest nie tak kiedy drain and source are the same
     #should be in the restart
     
-    if ((n_proc * n_proc) - 1) < drain:
-        raise ValueError(f"The number of processors: {n_proc * n_proc - 1} must be greater than the drain node: {drain}")
+    if ((n_pe * n_pe) - 1) < drain:
+        raise ValueError(f"The number of processors: {n_pe * n_pe - 1} must be greater than the drain node: {drain}")
     
     task_graph = model_to_graph(model, source = source, 
                                 drain = drain, 
-                                grouping = False, 
+                                grouping = False,
+                                namefile_task_graph = "visual/task_graph.pdf",
                                 verbose=True)
     #plot_graph(task_graph, file_path = "../task_graph.png")
+    
+    return grid, task_graph
+
+if __name__ == "__main__":
+    
+    #model = models.test_conv((10, 10, 3), verbose = True)
+    model = models.test_model((10, 10, 3), verbose = True)
+    analyze_ops(model,incl_info = False)
+    task_graph = partitioner(model)
+
+
 
 
 

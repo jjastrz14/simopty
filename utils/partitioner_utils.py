@@ -443,7 +443,9 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
                 #strides = layer.strides if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else (1,1)
                 
                 #remember that overlap does not work if kernel_sizes are not equall
-                assert layer.kernel_size[0] == layer.kernel_size[1], "The kernel size must be square for spatial partitioning"
+                if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)):
+                    assert layer.kernel_size[0] == layer.kernel_size[1] , "The kernel size must be square for spatial partitioning"
+                    
                 overlap = layer.kernel_size[0] // 2  if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 0
                 
                 #define percentages of the %IN parameter
@@ -869,21 +871,55 @@ def _adaptive_parsel(layer):
         '''
         pass
     
-    def _equal_MACs_per_partition(layer):
+    def _equal_MACs_per_partition(layer,partition_strategy="spatial_max"):
         '''
         A subroutine to split the layers in such a way that the MACs are equally distributed among the partitions
         '''
-        # check the input shape of the layer
-        input_shape = layer.input[0].shape if type(layer.input) == list else layer.input.shape
-        output_shape = layer.output.shape
+        # Function to compute divisors of a number
+        def get_divisors(n):
+            if n <= 0:
+                return []
+            divisors = set()
+            for i in range(1, int(n**0.5) + 1):
+                if n % i == 0:
+                    divisors.add(i)
+                    divisors.add(n // i)
+            return sorted(divisors)
         
-        sp = 0
-        out_ch = 1
-        in_ch = 1
-
+        # Assuming the layer has attributes for output spatial dimensions, output channels, and input channels
+        H_in = layer.input[0].shape[0]
+        #W_out = layer.output[0].shape[1]
+        #S = H_out * W_out
+        C_out = layer.output[0].shape[2]
+        C_in = layer.input[0].shape[-1]
+        
+        # Get divisors for each dimension
+        sp_divisors = get_divisors(H_in)
+        out_divisors = get_divisors(C_out)
+        in_divisors = get_divisors(C_in)
+        
+        # Select the maximum possible divisors to split into the maximum number of partitions
+        # This aims to increase the solution space for mapping
+        if partition_strategy == "spatial_max":
+            sp = sp_divisors[-3] if sp_divisors else 0 #if no then no splitting
+            out_ch = out_divisors[1] if out_divisors else 1
+            in_ch = in_divisors[1] if in_divisors else 1
+        elif partition_strategy == "input_max":
+            sp = sp_divisors[1] if sp_divisors else 0 #if no then no splitting
+            out_ch = out_divisors[1] if out_divisors else 1
+            in_ch = in_divisors[-2] if in_divisors else 1
+        elif partition_strategy == "output_max":
+            sp = sp_divisors[1] if sp_divisors else 0 #if no then no splitting
+            out_ch = out_divisors[-2] if out_divisors else 1
+            in_ch = in_divisors[1] if in_divisors else 1
+        else: 
+            raise ValueError("Invalid max splitting strategy")
+        
         return sp, out_ch, in_ch
     
     #2^splitting factor for spatial - number of partinions, just for the spatial partitioning
+    
+    
    
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
@@ -894,20 +930,22 @@ def _adaptive_parsel(layer):
         split_tuple =  _adaptive_parsel(prev_layer)
         return split_tuple
     elif layer.name == "max_pooling2d":
-        return 1,1,1
+        return 0,1,1
     elif isinstance(layer, layers.Add):
         return 1,1,1
     elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
-        return 1,1,1
+        return 0,1,6
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
-        return 1,1,1 
+        return 0,3,3
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return 1,1,1
+        return 0,3,3
     elif isinstance(layer, layers.BatchNormalization):
-        return 1,1,1
+        return 0,1,6
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
             # 0, 1, 1 min values
-        return 0,1,3
+        #sp, out_ch, in_ch = 0, 1, 3
+        sp, out_ch, in_ch = _equal_MACs_per_partition(layer,partition_strategy="spatial_max")
+        return sp, out_ch, in_ch
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
         return 1,1,1 
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
@@ -915,7 +953,8 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, layers.Dropout):
         return 0,1,1 
     elif isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
-        return 1,1,1
+        sp, out_ch, in_ch = 0,1,6 #_equal_MACs_per_partition(layer,partition_strategy="spatial_max")
+        return sp, out_ch, in_ch
     else:
         raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))
 

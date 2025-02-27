@@ -28,6 +28,8 @@ from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+from matplotlib.animation import FFMpegWriter 
+from matplotlib.ticker import MaxNLocator
 base_path = os.path.expanduser("~/Projects/restart/lib")
 if not os.path.exists(base_path):
     raise FileNotFoundError(f"The required library path does not exist: {base_path}. Please update the PATH_TO_SIMULATOR variable with the correct path.")
@@ -152,6 +154,7 @@ class NoCPlotter:
         self.ax = Axes3D(self.fig)
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.ax.set_box_aspect([1*self.k, 1*self.k, self.k * 0.5])
+        self.ax.grid(False)
         self.ax.axis("off")
         self.ax.set_xlabel('X')
         self.ax.set_ylabel('Y')
@@ -593,6 +596,8 @@ class NoCPlotter:
         Main Execution Point
         """
         curdir = os.path.dirname(__file__)
+        #if network_file is None:
+        #    raise ValueError("The network file is not specified")
         network_file = curdir +'/../config_files/arch.json' if network_file is None else network_file
 
         try:
@@ -609,6 +614,7 @@ class NoCPlotter:
         self.plot_pes(self.points[1])
         self.plot_reconf(self.points[2])
         self.gen_activity_animation(logger, pause,file_name, verbose)
+        plt.close(self.fig)
         #plt.show()
     ###############################################################################
 
@@ -638,7 +644,7 @@ class NoCTimelinePlotter(NoCPlotter):
            Information about Computing, Traffic (out and in) and Reconfiguration 
            is collected from the logger
         """
-        self.node_events = {i: {"comp": [], "traf_out": [], "traf_in": [], "recon": []} for i in range(len(self.points[1]))}
+        self.node_events = {i: {"comp": [], "recon": [], "traf_out": [], "traf_in": [], "traf_between":[]} for i in range(len(self.points[1]))}
     
         # Process computation events
         for event in logger.events:
@@ -655,7 +661,7 @@ class NoCTimelinePlotter(NoCPlotter):
                         and e.info.node == node
                         and e.cycle > start  # Ensure valid duration
                     )
-                    duration = end_event.cycle - start + 1  # Inclusive duration
+                    duration = end_event.cycle - start
                     self.node_events[node]["comp"].append((start, duration))
                 except StopIteration:
                     print(f"Warning: No END_COMPUTATION found for node {node} at cycle {start}")
@@ -663,7 +669,10 @@ class NoCTimelinePlotter(NoCPlotter):
             ######### TRAFFIC #######    
             elif event.type == nocsim.EventType.OUT_TRAFFIC:
                 #the same information is stored in OUT_TRAFFIC and IN_TRAFFIC
-                #note from Edoardo: because it is used to record when the packet actually arrives in the chronologiacal log: both events (OUT_TRAFFIC and IN_TRAFFIC) point to the same info, which records the hystory of the related traffic, whose TrafficEventInfo is also pointed by both
+                #note from Edoardo: 
+                # because it is used to record when the packet actually arrives in the chronologiacal log: 
+                # both events (OUT_TRAFFIC and IN_TRAFFIC) point to the same info, which records the hystory of the related traffic, 
+                # whose TrafficEventInfo is also pointed by both
                 #Here we want to collect: sending node, receiving node, time of sending, time of receiving
                 #Communication between the nodes is denoted with different collor
                 
@@ -678,17 +687,17 @@ class NoCTimelinePlotter(NoCPlotter):
                     if history_bit.start >= start and history_bit.end >= start:
                         
                         if history_bit.rsource == history_bit.rsink == sending_node:
-                            duration = history_bit.end - history_bit.start + 1
+                            duration = history_bit.end - history_bit.start 
                             self.node_events[history_bit.rsource]["traf_out"].append((history_bit.start, duration))
                             
                         elif history_bit.rsource == history_bit.rsink == receiving_node:
-                            duration = history_bit.end - history_bit.start + 1
+                            duration = history_bit.end - history_bit.start 
                             self.node_events[history_bit.rsink]["traf_in"].append((history_bit.start, duration))
                         
                         elif history_bit.rsource != history_bit.rsink:
-                            duration = history_bit.end - history_bit.start + 1
-                            self.node_events[history_bit.rsource]["traf_out"].append((history_bit.start, duration))
-                            self.node_events[history_bit.rsink]["traf_in"].append((history_bit.start, duration))
+                            duration = history_bit.end - history_bit.start
+                            self.node_events[history_bit.rsource]["traf_between"].append((history_bit.start, duration))
+                            self.node_events[history_bit.rsink]["traf_between"].append((history_bit.start, duration))
                         else: 
                             raise ValueError(f"Error: I don't know what to do with this history bit {history_bit} of {event} ")
                     else:
@@ -707,7 +716,7 @@ class NoCTimelinePlotter(NoCPlotter):
                         and e.additional_info== node
                         and e.cycle > start  # Ensure valid duration
                     )
-                    duration = end_event.cycle - start # Inclusive duration already embeded in cycles from logger
+                    duration = end_event.cycle - start
                     self.node_events[node]["recon"].append((start, duration))
                 except StopIteration:
                     print(f"Warning: No END_RECONFIGURATION found for node {node} at cycle {start}")
@@ -727,18 +736,20 @@ class NoCTimelinePlotter(NoCPlotter):
             print(f"Computation events and duration: {events['comp']}")
             print(f"Traffic events IN and duration: {events['traf_in']}")
             print(f"Traffic events OUT and duration: {events['traf_out']}")
+            print(f"Traffic events BETWEEN and duration: {events['traf_between']}")
             print(f"Reconfiguration events and duration: {events['recon']}")
             print()
 
-    def plot_timeline(self, filename):
+    def plot_timeline(self, filename, legend=True, hihlight_xticks=True):
         """Draw horizontal bars for events."""
         
         #(key, color, label, alpha)
         event_types = [
         ('comp', 'tomato', 'Computation', 1.0), 
-        ('traf_out', 'dodgerblue', 'Traffic Out', 0.5),
-        ('traf_in', 'slateblue', 'Traffic In', 0.5),
-        ('recon', 'limegreen', 'Reconfiguration', 0.7)
+        ('recon', 'seagreen', 'Reconfiguration', 1.0),
+        ('traf_out', 'dodgerblue', 'Traffic PE out', 0.7),
+        ('traf_in', 'darkorange', 'Traffic PE in', 0.7),
+        ('traf_between', 'silver', 'Traffic NoC', 0.7)
         ]
     
         # Track used labels to prevent duplicates in legend
@@ -779,26 +790,29 @@ class NoCTimelinePlotter(NoCPlotter):
         self.ax2d.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
         
         # Add vertical lines at each major x-tick
-        for tick in self.ax2d.xaxis.get_major_locator().tick_values(self.ax2d.get_xlim()[0], self.ax2d.get_xlim()[1]):
-            self.ax2d.axvline(x=tick, color='grey', linestyle='-', linewidth=0.5, zorder = 0)
+        if hihlight_xticks:
+            for tick in self.ax2d.xaxis.get_major_locator().tick_values(self.ax2d.get_xlim()[0], self.ax2d.get_xlim()[1]):
+                self.ax2d.axvline(x=tick, color='grey', linestyle='-', linewidth=0.5, zorder = 0)
 
         # Add horizontal lines at the corners of the x nodes
         for node in range(len(self.points[1])):
             self.ax2d.axhline(y=node - 0.4, color='grey', linestyle='--', linewidth=0.5)
             self.ax2d.axhline(y=node + 0.4, color='grey', linestyle='--', linewidth=0.5)
 
-        self.ax2d.legend(
-        #loc='upper right',
-        #bbox_to_anchor=(1.17, 1.0),
-        #borderaxespad=0.0,
-        #fontsize='small',
-        title='Event Types',
-        title_fontsize='medium',
-        frameon=True
-        )
+        if legend:
+            self.ax2d.legend(
+            #loc='upper right',
+            #bbox_to_anchor=(1.17, 1.0),
+            #borderaxespad=0.0,
+            #fontsize='small',
+            #title='Event Types',
+            title_fontsize='medium',
+            frameon=True
+            )
         if filename: 
             self.fig2d.savefig(filename, dpi=300)
             print(f"Timeline graph saved to {filename}")
+        plt.close(self.fig)
             
             
 class SynchronizedNoCAnimator:
@@ -822,11 +836,12 @@ class SynchronizedNoCAnimator:
         self.ax2d = self.fig.add_subplot(122)
         
         # Initialize visualizations
-        self._initialize_plotters()
         self._add_timeline_elements()
+        self._initialize_plotters()
+        
 
     def _initialize_plotters(self):
-        """Initialize both visualizations using existing methods"""
+        """Initialize both visualizations and collect blit artists."""
         # Initialize 3D plot
         self.noc_plotter.init(self.config_file)
         self.noc_plotter.fig = self.fig
@@ -836,16 +851,45 @@ class SynchronizedNoCAnimator:
         self.noc_plotter.plot_nodes(self.noc_plotter.points[0])
         self.noc_plotter.plot_pes(self.noc_plotter.points[1])
         self.noc_plotter.plot_reconf(self.noc_plotter.points[2])
+        
+        self.noc_plotter.timeStamp = self.ax3d.text(0, 0, 1., 0, size=12, color='red', 
+                                              fontdict={'weight': 'bold'}, 
+                                              transform=self.ax3d.transAxes)
 
         # Initialize timeline
         self.timeline_plotter.setup_timeline(self.logger, self.config_file)
         self.timeline_plotter.ax2d = self.ax2d
-        self.timeline_plotter.plot_timeline(None)
+        self.timeline_plotter.plot_timeline(None,legend = False, hihlight_xticks = False)
+        
+        # Collect artists that need blitting
+        self.blit_artists = [self.current_line]
+        
+        # Handle connection artists
+        for conn_group in [self.noc_plotter.artists_hconnections,
+                         self.noc_plotter.artists_vconnections,
+                         self.noc_plotter.artists_reconf_connections]:
+            for conn in conn_group.values():
+                if isinstance(conn, list):
+                    self.blit_artists.extend(conn)
+                else:
+                    self.blit_artists.append(conn)
+                
+        self.blit_artists += [
+            *self.noc_plotter.artists_points[0],
+            *self.noc_plotter.artists_points[1],
+            *self.noc_plotter.artists_points[2],
+            self.noc_plotter.timeStamp
+        ]
+        
+    def _init_anim(self):
+        """Initialization function for blitting"""
+        return self.blit_artists
+
 
     def _add_timeline_elements(self):
         """Add timeline animation elements"""
         self.current_line = self.ax2d.axvline(x=0, color='red', linestyle='--', alpha=0.7)
-        self.ax2d.set_xlim(0, min(20, self.max_cycle))
+        self.ax2d.set_xlim(0, int(min(20, self.max_cycle))) #here integers?
         self.fig.tight_layout()
 
     def _process_events(self, cycle):
@@ -916,21 +960,31 @@ class SynchronizedNoCAnimator:
                                     currently_active_pes_reconf)
         self.noc_plotter.colorize_connections(currently_active_connections)
         self.noc_plotter.colorize_reconf(currently_active_pes_reconf)
+        self.noc_plotter.timeStamp.set_text(f"Cycle: {frame}")
+            
         
         # Update timeline visualization
         self.current_line.set_xdata([frame, frame])
         if frame > 10:  # Pan viewport after initial cycles
-            self.ax2d.set_xlim(frame - 10, frame + 10)
+            self.ax2d.set_xlim((frame - 10), (frame + 10))
+        
+        self.ax2d.xaxis.set_major_locator(MaxNLocator(integer=True))
             
-        return [self.current_line]
+        return self.blit_artists
 
     def create_animation(self, filename, fps=30):
         """Create and save synchronized animation"""
+        # Configure FFmpeg writer properly
+        writer = FFMpegWriter(
+            fps=fps,
+            extra_args=['-preset', 'veryslow', '-crf', '18']
+        )
+        
         ani = FuncAnimation(
             self.fig,
             self._update_combined,
             frames=range(self.max_cycle),
-            init_func=lambda: self.current_line,
+            init_func=self._init_anim,
             interval=1000//fps,
             blit=True
         )
@@ -938,10 +992,10 @@ class SynchronizedNoCAnimator:
         if filename:
             ani.save(
                 filename,
-                writer='ffmpeg',
-                fps=fps,
-                extra_args=['-preset', 'veryslow', '-crf', '18'],
+                writer=writer, 
                 dpi=150,
                 savefig_kwargs={'facecolor': 'white'}
             )
             print(f"Combined animation saved to {filename}")
+        
+        plt.close(self.fig)
