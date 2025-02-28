@@ -515,7 +515,7 @@ class ParallelAntColony(AntColony):
                     all_time_shortest_path = shortest_path 
         
             # Finalize the simulation: save the data
-            np.save("statistics.npy", self.statistics)
+            np.save("visual/convergence_stat.npy", self.statistics)
 
         return all_time_shortest_path
     
@@ -575,7 +575,7 @@ class ParallelAntColony(AntColony):
                     middle_config_saved = True  # Ensure we save it only once
 
             # Finalize the simulation: save the data
-            np.save("statistics.npy", self.statistics)
+            np.save("visual/convergence_stat.npy", self.statistics)
             if all_time_shortest_path[2] < np.inf:
                 self.save_path_json(all_time_shortest_path[1], SAVE_DATA_DIR + "/all_time_shortest_path.json")
 

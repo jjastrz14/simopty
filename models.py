@@ -30,9 +30,9 @@ def small_test_model(input_shape, verbose = False):
     
     inputs = layers.Input(shape=input_shape)
     x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (inputs)
-    #x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
-    #x = layers.Conv2D(4, kernel_size=(3, 3), activation='linear') (x)
-    #x = layers.Conv2D(4, kernel_size=(3, 3), activation='linear') (x)
+    x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (x)
+    x = layers.Conv2D(4, kernel_size=(3, 3), activation='linear') (x)
+    x = layers.Conv2D(4, kernel_size=(3, 3), activation='linear') (x)
     model = keras.Model(inputs=inputs, outputs=x)
     
     model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])

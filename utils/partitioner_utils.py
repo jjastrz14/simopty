@@ -280,7 +280,6 @@ from typing import List, Union, Tuple, Set, Dict
 from copy import deepcopy
 import string
 import matplotlib.pyplot as plt
-import graph as dg
 import math
 
 @dataclass
@@ -919,8 +918,6 @@ def _adaptive_parsel(layer):
     
     #2^splitting factor for spatial - number of partinions, just for the spatial partitioning
     
-    
-   
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
         return 0,1,1
@@ -944,7 +941,7 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
             # 0, 1, 1 min values
         #sp, out_ch, in_ch = 0, 1, 3
-        sp, out_ch, in_ch = _equal_MACs_per_partition(layer,partition_strategy="spatial_max")
+        sp, out_ch, in_ch = _equal_MACs_per_partition(layer,partition_strategy="input_max")
         return sp, out_ch, in_ch
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
         return 1,1,1 
