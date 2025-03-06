@@ -20,9 +20,32 @@ import simulator_stub as ss
 import mapper as mp
 from dirs import *
 from utils.partitioner_utils import PE
+from domain import Grid, Topology
 
 
 import matplotlib.pyplot as plt
+
+# a utility function to compute manhattan distance
+def manhattan_distance(n1, n2, domain: Grid):
+    """
+    Compute the manhattan distance between two nodes.
+    """
+    n1_x, n1_y = domain.get_node(n1)
+    n2_x, n2_y = domain.get_node(n2)
+    if domain.topology == Topology.MESH:
+        return abs(n1_x - n2_x) + abs(n1_y - n2_y)
+    elif domain.topology == Topology.TORUS:
+        return min(abs(n1_x - n2_x), domain.K - abs(n1_x - n2_x)) + min(abs(n1_y - n2_y), domain.K - abs(n1_y - n2_y))
+    else:
+        raise ValueError("The topology is not supported.")
+
+def random_heuristic_update(graph, domain):
+    """
+    Update the heuristic matrix randomly.
+    """
+    eta = np.random.rand(graph.n_nodes-1, domain.size, domain.size)
+    return eta
+
 
 
 # dictionary to store the shared variables (pheromone and heuristic matrices)
@@ -41,7 +64,7 @@ class Ant:
         self.current_path = None
 
 
-    def pick_move(self, d_level, current, resources, added_space, prev_path):
+    def pick_move(self,task_id, d_level, current, resources, added_space, prev_path, random_heuristic = True):
         """
         Pick the next move of the ant, given the pheromone and heuristic matrices.
         """
@@ -58,7 +81,22 @@ class Ant:
             outbound_heuristics = np.ones(self.domain.size)
         else:
             outbound_pheromones = tau[d_level-1,current,:]
-            outbound_heuristics = eta[d_level-2, current, :]
+            if random_heuristic:
+                outbound_heuristics = eta[d_level-1, current, :]
+            else:
+                # find the id of the task on which task_id depends (may be multiple)
+                dependencies = self.task_graph.get_dependencies(task_id)
+                print("The dependencies of the task are:", dependencies)
+                # find the PE on which the dependencies are mapped
+                dependencies_pe = [pe[2] for pe in prev_path if pe[0] in dependencies]
+                print("The PEs on which the dependencies are mapped are:", dependencies_pe)
+                # generate the heuristics to favour the PEs near the  ones where the dependencies are mapped
+                outbound_heuristics = np.zeros(self.domain.size)
+                for pe in dependencies_pe:
+                    for i in range(self.domain.size):
+                        outbound_heuristics[i] += 1 / manhattan_distance(pe, i) if manhattan_distance(pe, i) != 0 else 1
+                outbound_heuristics = outbound_heuristics / np.sum(outbound_heuristics)
+                
         row = (outbound_pheromones ** self.alpha) * (outbound_heuristics ** self.beta) * mask
         norm_row = (row / row.sum()).flatten()
         if norm_row is np.NaN:
@@ -105,7 +143,7 @@ class Ant:
         for d_level, task_id in enumerate(self.tasks):
             current = prev
             added_space = self.graph.get_node(task_id)["size"] if task_id != "start" and task_id != "end" else 0
-            move = self.pick_move(d_level, current, resources, added_space, path) if d_level != self.graph.n_nodes else np.inf
+            move = self.pick_move(task_id, d_level, current, resources, added_space, path) if d_level != self.graph.n_nodes else np.inf
             # update the resources
             if task_id != "start" and task_id != "end" and move != np.inf:
                 resources[move].mem_used += added_space

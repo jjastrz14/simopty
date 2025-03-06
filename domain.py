@@ -65,6 +65,22 @@ class Grid:
             grid[i]  = tuple([(i // dim_offset[j]) % self.K for j in range(self.N)])
         return grid
     
+    def get_node(self, index):
+        """
+        Returns the node corresponding to the given index.
+
+        Parameters
+        ----------
+        index : int
+            The index of the node.
+        
+        Returns
+        -------
+        tuple
+            The coordinates of the node.
+        """
+        return self.grid[index]
+    
     def get_neighbors(self, node):
         """
         Returns the neighbors of the given node.

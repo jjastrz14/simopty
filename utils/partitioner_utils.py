@@ -805,46 +805,6 @@ def _adaptive_parsel(layer):
     - an integer, representing the space that will be needed for the partitions of the layer
     """
 
-    def _split_fc(layer):
-        '''
-        A subroutine to split the dense layers: we employ only spatial.
-        
-        '''
-        # check the input shape of the layer
-        input_shape = layer.input[0].shape if type(layer.input) == list else layer.input.shape
-        output_shape = layer.output.shape
-
-        sp_factor = 0
-        # estimate the space needed to host the values (input, output, weights) of the layer on the PE
-        space_needed = 0
-        # input space
-        space_needed += input_shape[1:].num_elements() # 8 bits per element
-        # output space
-        space_needed += output_shape[1:].num_elements() # 8 bits per element
-        # weights space
-        for w in layer.get_weights():
-            space_needed += w.num_elements()
-
-        while space_needed > PE.mem_size:
-            sp_factor += 1
-            space_needed = 0
-            # keep the same input_shape
-            input_shape = input_shape[1:].num_elements()
-            # halve the output shape
-            output_shape = output_shape[1:].num_elements() // 2
-            # weights space
-            weight_shape = input_shape * output_shape
-
-            space_needed += input_shape + output_shape + weight_shape
-
-        return (sp_factor, 0, 0), space_needed
-    
-    def _split_conv(layer):
-        '''
-        A subroutine to split the convolutional layers: we employ spatial and output channel partitioning
-        '''
-        pass
-
     # Check the type of the layer
     if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
         return 0,1,1
@@ -862,11 +822,11 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
         return 2,1,1
     elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return 2,1,1
+        return 0,1,1
     elif isinstance(layer, layers.BatchNormalization):
         return 2,1,1
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return 2,1,1
+        return 1,1,3
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
         return 2,1,1
     elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
@@ -1160,45 +1120,47 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
                             break
                     to_group.append(next_p)
 
-    # check the total size of the group of partitions: if it is smaller than the memory constraints, we can keep the group as it is
-    # otherwise, we split the group
+                # check the total size of the group of partitions: if it is smaller than the memory constraints, we can keep the group as it is
+                # otherwise, we split the group
 
-    if compute_group_size(to_group) <= memory_constraints:
-        return 
-    else:
-        new_groups = []
-        cur_group = []
-        cur_group_size = 0
-        for p in to_group:
-            if compute_group_size([p]) > memory_constraints:
-                raise ValueError("Partition size is greater than the memory constraints of the PE")
-            cur_group_size += compute_group_size([p])
-            if cur_group_size <= memory_constraints:
-                cur_group.append(p)
-            else:
-                new_groups.append(cur_group)
-                cur_group = [p]
-                cur_group_size = compute_group_size([p])
-        new_groups.append(cur_group)
-
-        # now for each sub-group, we access the partitions and change the mergeable, merger and out_merging fields
-        # as follows:
-        # - if the partition is the first in the group, we set the mergeable field to False and the merger field to True
-        # - if the partition is the last in the group, we set the mergeable field to True and the out_merging field to None
-
-        for group in new_groups:
-            for p_id, p in enumerate(group):
-                if p_id == 0:
-                    p.mergeable = False
-                    p.merger = True
-                    p.out_merging = p.out_merging if len(group) > 1 else None
-                elif p_id == len(group) - 1:
-                    p.mergeable = True
-                    p.out_merging = None
+                if compute_group_size(to_group) <= memory_constraints:
+                    return 
                 else:
-                    p.mergeable = True
-                    p.merger = False
-                    # p.out_merging = group[p_id+1].id
+                    new_groups = []
+                    cur_group = []
+                    cur_group_size = 0
+                    for p in to_group:
+                        if compute_group_size([p]) > memory_constraints:
+                            raise ValueError("Partition size is greater than the memory constraints of the PE")
+                        cur_group_size += compute_group_size([p])
+                        if cur_group_size <= memory_constraints:
+                            cur_group.append(p)
+                        else:
+                            new_groups.append(cur_group)
+                            cur_group = [p]
+                            cur_group_size = compute_group_size([p])
+                    new_groups.append(cur_group)
+
+                    # now for each sub-group, we access the partitions and change the mergeable, merger and out_merging fields
+                    # as follows:
+                    # - if the partition is the first in the group, we set the mergeable field to False and the merger field to True
+                    # - if the partition is the last in the group, we set the mergeable field to True and the out_merging field to None
+
+                    for group in new_groups:
+                        for p_id, p in enumerate(group):
+                            if p_id == 0:
+                                p.mergeable = False
+                                p.merger = True
+                                p.out_merging = p.out_merging if len(group) > 1 else None
+                            elif p_id == len(group) - 1:
+                                p.mergeable = True
+                                p.out_merging = None
+                            else:
+                                p.mergeable = True
+                                p.merger = False
+                                # p.out_merging = group[p_id+1].id
+
+                
 
         return 
 
@@ -1405,14 +1367,14 @@ def analyze_partition(partition):
     layer = partition.layer
     inputs_bounds = partition.in_bounds
     inputs_shape =[inputs_bounds[1][i] - inputs_bounds[0][i] for i in range(len(inputs_bounds[0]))] if len(inputs_bounds[0]) > 1 else [inputs_bounds[1][0] - inputs_bounds[0][0]]
-    tot_par_size += np.prod(inputs_shape)
+    tot_par_size += np.prod(inputs_shape) * ((partition.in_ch[1] - partition.in_ch[0]) if partition.in_ch is not None else 1)
     # prepend a 0 to the input shape to make it compatible to the hooks
-    inputs_shape = [0] + inputs_shape
+    inputs_shape = [0] + inputs_shape + ([partition.in_ch[1] - partition.in_ch[0]] if partition.in_ch is not None else [1])
     outputs_bounds = partition.out_bounds
     outputs_shape = [outputs_bounds[1][i] - outputs_bounds[0][i] for i in range(len(outputs_bounds[0]))] if len(outputs_bounds[0]) > 1 else [outputs_bounds[1][0] - outputs_bounds[0][0]]
-    tot_par_size += np.prod(outputs_shape)
+    tot_par_size += np.prod(outputs_shape) * ((partition.out_ch[1] - partition.out_ch[0]) if partition.out_ch is not None else 1)
     # prepend a 0 to the output shape also
-    outputs_shape = [0] + outputs_shape
+    outputs_shape = [0] + outputs_shape + ([partition.out_ch[1] - partition.out_ch[0]] if partition.out_ch is not None else [1])
     # Compute the FLOPs (and MACs) using the hook
     if type(layer) in register_hooks:
         FLOPs, MACs = register_hooks[type(layer)](layer, inputs_shape, outputs_shape)

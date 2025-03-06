@@ -35,12 +35,12 @@ def test_model(input_shape):
     x = layers.Conv2D(3, kernel_size=(3, 3), activation='linear') (inputs)
     x = layers.MaxPooling2D(pool_size=(2, 2))(x)
     x = layers.Conv2D(6, kernel_size=(3, 3))(x)
-    x = layers.BatchNormalization()(x)
+    # x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
     x = layers.MaxPooling2D(pool_size=(2, 2))(x)
     x = layers.Flatten()(x)
     x = layers.Dense(64)(x)
-    x = layers.BatchNormalization()(x)
+    # x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
     x = layers.Dense(24, activation='relu')(x)
     x = layers.Dense(10, activation='softmax')(x)
@@ -113,56 +113,24 @@ if __name__ == "__main__":
     # config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
     # # results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
     # # results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
-    # results, logger = stub.run_simulation("config_files/runs/all_time_shortest_path_test_model_2.json", verbose = True)
+    # results, logger = stub.run_simulation("config_files/runs/test.json", verbose = True)
     # print(results)
     # print(logger.print_events())
-    # # # print(logger.events[1].info.history[0].rsource)
-    # # # print(logger.events[1].info.history[0].rsink)
-    # # # print(logger.events[1].info.history[0].start)
-    # # # print(logger.events[1].info.history[0].end)
-    # # # print(logger.events[1].info.history[1].rsource)
-    # # # print(logger.events[1].info.history[1].rsink)
-    # # # print(logger.events[1].info.history[1].start)
-    # # # print(logger.events[1].info.history[1].end)
-    # # # print(logger.events[1].info)
+    # # print(logger.events[0].type)
+    # # print(logger.events[0].additional_info)
+    # print(logger.events[854].info)
+    # print(logger.events[854].info.history)
+    # # print(logger.events[1].info.history[1].rsource)
+    # # print(logger.events[1].info.history[1].rsink)
+    # # print(logger.events[1].info.history[1].start)
+    # # print(logger.events[1].info.history[1].end)
+    # # print(logger.events[1].info)
 
-    # NoCPlotter().plot(logger, 100 ,"config_files/runs/all_time_shortest_path_test_model_2.json", "visual/NoC_simulation_result.gif")
+    # NoCPlotter().plot(logger, 100 ,"config_files/runs/dumps/dump_0.json", "visual/NoC_simulation_result.gif")
     
 
-    # Define a Optimization object
 
-    # params = op.ACOParameters(
-    #     n_ants = 20,
-    #     rho = 0.05,
-    #     n_best = 10,
-    #     n_iterations = 150,
-    #     alpha = 1.,
-    #     beta = 1.2,
-    # )
-
-    # opt = op.AntColony(params, grid, dep_graph)
-
-    # shortest = opt.run(once_every=1, show_traces= True)
-    # print(shortest[0])
-    # print(opt.path_length(shortest[0], verbose = True))
-
-
-    # params = op.GAParameters(
-    #     sol_per_pop = 40,
-    #     n_parents_mating=30,
-    #     n_generations = 100,
-    #     mutation_probability = .5,
-    #     crossover_probability = .9,
-    # )
-
-    # opt = op.GeneticAlgorithm(params, grid, dep_graph)
-
-    # shortest = opt.run()
-
-    # opt.ga_instance.plot_fitness()
-    # print(shortest[0], 1/shortest[1])
-
-    model = test_model((28, 28, 1))
+    model = test_model((28, 28, 3))
     # # model = load_model("ResNet50")
     # # model = load_model("MobileNet")
     # # model = load_model("MobileNetV2")
@@ -178,26 +146,41 @@ if __name__ == "__main__":
     # plot_graph(task_graph)
 
     grid = dm.Grid()
-    grid.init(3, 2, dm.Topology.TORUS)
+    grid.init(4, 2, dm.Topology.TORUS)
 
-    params = op.ACOParameters(
-        n_ants = 1,
-        rho = 0.05,
-        n_best = 1,
-        n_iterations = 50,
-        alpha = 1.,
-        beta = 1.2,
-    )
-    # n_procs = 5
-    opt = op.AntColony( params, grid, task_graph)
+    # params = op.ACOParameters(
+    #     n_ants = 4,
+    #     rho = 0.05,
+    #     n_best = 1,
+    #     n_iterations = 1,
+    #     alpha = 1.,
+    #     beta = 1.2,
+    # )
+    # n_procs = 3
+    # # opt = op.AntColony( params, grid, task_graph)
     # opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
 
-    shortest = opt.run(once_every=1, show_traces= False)
-    print(shortest[1])
-    print(opt.path_length(shortest[0], verbose = True))
+    # shortest = opt.run(once_every=1, show_traces= False)
+    # print(shortest)
+    # print(opt.path_length(shortest[0], verbose =False))
     # # # Load the statistics and plot the results
     # # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
     # # print(stats)
+
+    params = op.GAParameters(
+        sol_per_pop = 40,
+        n_parents_mating=30,
+        n_generations = 10,
+        mutation_probability = .5,
+        crossover_probability = .9,
+    )
+
+    opt = op.GeneticAlgorithm(params, grid, task_graph)
+
+    shortest = opt.run()
+
+    opt.ga_instance.plot_fitness()
+    print(shortest[0], 1/shortest[1])
 
 
 
