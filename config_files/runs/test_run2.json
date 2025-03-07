@@ -8,10 +8,12 @@
             "use_read_write" : 1,
             "routing_function" : "dim_order",
             "num_vcs" : 16,
+            "internal_speedup" : 1.5,
             "user_defined_traffic" : 1,
             "watch_out" : "-",
-            "reconfiguration": 1,
-            "reconf_cycles": 2,
+            "logger": 1,
+            "reconfiguration": 0,
+            "reconf_cycles": 0.1,
             "max_pe_mem": 15
         },
         
@@ -21,31 +23,11 @@
             "id" : 0,
             "src" : 0,
             "dst" : 1,
-            "size" : 3,
+            "size" : 1,
             "dep" : [-1],
-            "type" : "WRITE_REQ",
+            "type" : "WRITE",
             "cl" : 0,
-            "pt_required" : 5
-        },
-        {
-            "id" : 1,
-            "node" : 1,
-            "size" : 8,
-            "weight_size" : 3,
-            "type" : "COMP_OP",
-            "ct_required" : 20,
-            "dep" : [-1]
-        },
-        {
-            "id" : 2,
-            "src" : 1,
-            "dst" : 7,
-            "size" : 6,
-            "dep" : [1],
-            "type" : "READ_REQ",
-            "cl" : 0,
-            "pt_required" : 20
+            "pt_required" : 0
         }
-
     ]
 }

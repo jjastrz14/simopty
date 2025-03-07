@@ -502,7 +502,7 @@ class ParallelAntColony(AntColony):
                 if shortest_path[2] < all_time_shortest_path[2]:
                     all_time_shortest_path = shortest_path 
             # Finalize the simulation: save the data
-            np.save("statistics.npy", self.statistics)
+            np.save("data/statistics.npy", self.statistics)
 
         return all_time_shortest_path
 

@@ -25,6 +25,7 @@ from utils.plotting_utils import *
 from utils.ga_utils import *
 from utils.partitioner_utils import *
 from utils.ani_utils import *
+import visualizer
 import tensorflow.keras as keras
 import tensorflow.keras.layers as layers
 from tensorflow.keras.utils import plot_model
@@ -109,17 +110,17 @@ if __name__ == "__main__":
     # stub = ss.SimulatorStub(EX_DIR)
 
     # # Run the simulation
-    # processors = list(range(6))
-    # config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
+    # # processors = list(range(6))
+    # # config_files = [os.path.join(RUN_FILES_DIR, f) for f in os.listdir(RUN_FILES_DIR) if f.endswith('.json')]
     # # results, logger = stub.run_simulations_in_parallel(config_files=config_files, processors=processors, verbose=True)
     # # results, logger = stub.run_simulation("config_files/runs/test_run.json", verbose = True)
-    # results, logger = stub.run_simulation("config_files/runs/test.json", verbose = True)
+    # results, logger = stub.run_simulation("config_files/runs/test_run2.json", verbose = True)
     # print(results)
     # print(logger.print_events())
-    # # print(logger.events[0].type)
-    # # print(logger.events[0].additional_info)
-    # print(logger.events[854].info)
-    # print(logger.events[854].info.history)
+    # # # print(logger.events[0].type)
+    # # # print(logger.events[0].additional_info)
+    # # print(logger.events[854].info)
+    # print(logger.events[1].info.history)
     # # print(logger.events[1].info.history[1].rsource)
     # # print(logger.events[1].info.history[1].rsink)
     # # print(logger.events[1].info.history[1].start)
@@ -131,15 +132,15 @@ if __name__ == "__main__":
 
 
     model = test_model((28, 28, 3))
-    # # model = load_model("ResNet50")
-    # # model = load_model("MobileNet")
-    # # model = load_model("MobileNetV2")
+    # # # model = load_model("ResNet50")
+    # # # model = load_model("MobileNet")
+    # # # model = load_model("MobileNetV2")
 
-    # # model.summary()
-    # # plot_model(model, to_file="visual/model.png", show_shapes=True)
-    # # analyze_ops(model, True)
+    # # # model.summary()
+    # # # plot_model(model, to_file="visual/model.png", show_shapes=True)
+    # # # analyze_ops(model, True)
 
-    # # print(split_spatial_dims(model.layers[2], 2))
+    # # # print(split_spatial_dims(model.layers[2], 2))
 
     
     task_graph = model_to_graph(model, verbose=True)
@@ -148,39 +149,43 @@ if __name__ == "__main__":
     grid = dm.Grid()
     grid.init(4, 2, dm.Topology.TORUS)
 
-    # params = op.ACOParameters(
-    #     n_ants = 4,
-    #     rho = 0.05,
-    #     n_best = 1,
-    #     n_iterations = 1,
-    #     alpha = 1.,
-    #     beta = 1.2,
-    # )
+    params = op.ACOParameters(
+        n_ants = 1,
+        rho = 0.05,
+        n_best = 1,
+        n_iterations = 1,
+        alpha = 1.,
+        beta = 1.2,
+    )
     # n_procs = 3
-    # # opt = op.AntColony( params, grid, task_graph)
+    opt = op.AntColony( params, grid, task_graph)
     # opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
 
-    # shortest = opt.run(once_every=1, show_traces= False)
-    # print(shortest)
+    shortest = opt.run(once_every=1, show_traces= False)
+    print(shortest)
+
+    file_name_json = "/dump.json"
+    path_timeline = "visual/timeline.png"
+    visualizer.plot_timeline(file_name_json, path_timeline, verbose = False)
     # print(opt.path_length(shortest[0], verbose =False))
     # # # Load the statistics and plot the results
-    # # stats = np.load("visual/statistics.npy", allow_pickle=True).item()
+    # # stats = np.load("data/statistics.npy", allow_pickle=True).item()
     # # print(stats)
 
-    params = op.GAParameters(
-        sol_per_pop = 40,
-        n_parents_mating=30,
-        n_generations = 10,
-        mutation_probability = .5,
-        crossover_probability = .9,
-    )
+    # params = op.GAParameters(
+    #     sol_per_pop = 40,
+    #     n_parents_mating=30,
+    #     n_generations = 10,
+    #     mutation_probability = .5,
+    #     crossover_probability = .9,
+    # )
 
-    opt = op.GeneticAlgorithm(params, grid, task_graph)
+    # opt = op.GeneticAlgorithm(params, grid, task_graph)
 
-    shortest = opt.run()
+    # shortest = opt.run()
 
-    opt.ga_instance.plot_fitness()
-    print(shortest[0], 1/shortest[1])
+    # opt.ga_instance.plot_fitness()
+    # print(shortest[0], 1/shortest[1])
 
 
 

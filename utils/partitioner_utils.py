@@ -293,7 +293,7 @@ class PE:
     # The amount of memory used by the PE (in bytes)
     mem_used: int = 0
 
-    def __init__(self, mem_size: int = 512000):
+    def __init__(self, mem_size: int = 256000):
         self.mem_size = mem_size
         self.mem_used = 0
 
@@ -416,6 +416,51 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
     Returns:
     - a new PartitionInfo list
     '''
+
+    def compute_receptive_field(region: list , layer):
+            
+            # region = [(x_min_out, y_min_out), (x_max_out, y_max_out)] or [(x_min_in,), (x_max_in,)]
+            # layer: a Kernel layer object
+
+            # If the layer instance is not convolutional, return the input region
+            if  isinstance(layer, layers.InputLayer):
+                return region
+            elif not hasattr(layer, 'kernel_size'):
+                # max pooling or average pooling or batch normalization
+                if isinstance(layer, layers.MaxPooling2D) or isinstance(layer, layers.AveragePooling2D):
+                    p_x = layer.pool_size[0]
+                    p_y = layer.pool_size[1]
+                    x_min = region[0][0] * p_x
+                    x_max = region[1][0] * p_x
+                    if len(region[0]) > 1:
+                        y_min = region[0][1] * p_y
+                        y_max = region[1][1] * p_y
+                        return [(int(x_min), int(y_min)), (int(x_max), int(y_max))]
+                    else:
+                        return [(int(x_min),), (int(x_max),)]
+                else:
+                    return region 
+
+            # Extract the kernel size, stride and padding
+            # kernel_size = (k_x, k_y) or (k_x,)
+            # stride = (s_x, s_y) or (s_x,)
+            # padding = 'same' or 'valid'
+
+            kernel_size = layer.kernel_size
+            stride = layer.strides
+            padding = layer.padding
+            
+            #convert the padding to a number
+            padding = 0 if padding == 'valid' else 1
+
+            # compute the receptive field
+            x_min = - padding + region[0][0] * stride[0]
+            x_max = - padding + region[1][0] * stride[0] + kernel_size[0] - 1
+            if len(region[0]) > 1:
+                y_min = - padding + region[0][1] * stride[1]
+                y_max = - padding + region[1][1] * stride[1] + kernel_size[1] - 1
+                return [(int(x_min), int(y_min)), (int(x_max), int(y_max))]
+            return [(int(x_min),), (int(x_max),)]
     
 
     def _create_partitions(input_dims, output_dims, weights_dims, partition = None):
@@ -423,78 +468,73 @@ def _split_spatial_dims(layer, split_factor, partitions: Union[None, List[Partit
         new_partitions = []
         original_input_dims = deepcopy(input_dims)
         original_output_dims = deepcopy(output_dims)
-        input_dims = deepcopy(input_dims)
-        output_dims = deepcopy(output_dims)
+        
+        if len(input_dims) > 2:
+            s_x = 2**((split_factor+1)//2)
+            s_y = 2**(split_factor//2)
+        else:
+            s_x = 2**split_factor
+            s_y = 1
 
-        s_x = (split_factor // 2 + split_factor % 2) * 2
-        s_y = (split_factor // 2) * 2
-
-        # Check the layer input shape
-        if split_factor > 0:
-            if len(input_dims) > 2:
-                overlap = layer.kernel_size[0] //2  if isinstance(layer, (layers.Conv2D, layers.DepthwiseConv2D)) else 0 # at this stage don't consider the stride
-            
-                input_dims[0] = (input_dims[0] + s_x - 1) // s_x if s_x > 1 else input_dims[0]
-                input_dims[1] = (input_dims[1] + s_y - 1) // s_y if s_y > 1 else input_dims[1]
-                output_dims[0] = (output_dims[0] + s_x - 1) // s_x if s_x > 1 else output_dims[0]
-                output_dims[1] = (output_dims[1] + s_y - 1) // s_y if s_y > 1 else output_dims[1]
-
-                # Add the overlap to the partition size 
-                for dim in range(len(input_dims)-1):
-                    input_dims[dim] += overlap*2
-                    input_dims[dim] = min(input_dims[dim], original_input_dims[dim])
-            
-            else:
-                
-                # if the layer is Dense, we split the partition by considering only ouput neurons:
-                # each partition will have the same number of input neurons ( corresponding to the number of input neurons of the layer)
-                # and a subset of the output neurons
-                overlap = layer.kernel_size[0] //2  if layer in [layers.Conv1D, layers.DepthwiseConv1D] else 0
-                index = 0
-
-                s_x = 2**split_factor
-                input_dims[index] = (input_dims[index]+ s_x - 1) // s_x if s_x > 1 else input_dims[index]
-                output_dims[index] = (output_dims[index] + s_x - 1) // s_x if s_x > 1 else output_dims[index]
-                
-                input_dims[index] += overlap*2
-                input_dims[index] = min(input_dims[index], original_input_dims[index])
-
-                    
-            
-
-
+        # Create an arrat of size s_x x s_y to store the output dimensions of the partitions: each object
+        # is an array of size 2 (or 1 if the layer is Dense) containing the output dimensions of the partition
+        # the array is initialized with zeros : [[0,0], [0,0], ...]
+        output_dimensions = np.zeros((s_x, s_y), dtype=object)
+        output_dimensions.fill([int(0), int(0)])
+    
 
         # Append the partitions to the new list:
         granularity = 2**split_factor
         for _ in range(granularity):
-            in_x_0 = (_ % s_x) * ((original_input_dims[0] + s_x - 1)// s_x) - overlap if s_x > 1 else 0
-            out_x_0 = (_ % s_x) * output_dims[0] if s_x > 1 else 0
-            if isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
+
+            input_dims = deepcopy(original_input_dims)
+            output_dims = deepcopy(original_output_dims)
+
+            # compute the dimensions for the partitions
+            if len(input_dims) > 2:
+                # compute the dimensions for the partition on the output
+                output_dims[0] = original_output_dims[0] if s_x == 1 else (original_output_dims[0]//s_x) + 1 if _ < original_output_dims[0] % s_x else original_output_dims[0]//s_x
+                output_dims[1] = original_output_dims[1] if s_y == 1 else (original_output_dims[1]//s_y) + 1 if _ < original_output_dims[1] % s_y else original_output_dims[1]//s_y 
+
+            else:
+                # if the layer is Dense, we split the partition by considering only ouput neurons:
+                index = 0
+                output_dims[index] = original_output_dims[0] if s_x == 1 else (original_output_dims[0]//s_x) + 1 if _ < original_output_dims[0] % s_x else original_output_dims[0]//s_x
+
+            out_x_0 = int(np.sum([output_dimensions[i, _//s_x][0] for i in range(0, _%s_x)])) if len(input_dims) > 2 else int(np.sum([output_dimensions[i][0] for i in range(0, _%s_x)]))
+            out_bounds = [(max(out_x_0,0),), (min(out_x_0 + output_dims[0], original_output_dims[0]),)]
+            # if isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
+            if len(input_dims) <= 2:
                 in_bounds = [(0,), (original_input_dims[0],)]
                 if isinstance(layer, layers.Dense):
                     weights_dims = [(original_input_dims[0], output_dims[0]),(output_dims[0],)] if layer.use_bias else [(original_input_dims[0], output_dims[0])]
             else:
-                in_bounds = [(max(in_x_0,0),), (min(in_x_0 + input_dims[0], original_input_dims[0]),)]
-            out_bounds = [(max(out_x_0,0),), (min(out_x_0 + output_dims[0], original_output_dims[0]),)]
+                receptive_region = compute_receptive_field(out_bounds, layer)
+                in_bounds = [(max(receptive_region[0][0],0),), (min(receptive_region[1][0], original_input_dims[0]),)]
+            
 
             # check the validity of the partition
             if (out_bounds[1][0] - out_bounds[0][0] < 1) or (in_bounds[1][0] - in_bounds[0][0] < 1):
+                print(f" The boudaries of the partition are invalid: {in_bounds} {out_bounds}")
                 raise ValueError(f"Invalid partition for spatial dimensions, please increase the split factor for layer: {layer.name}")
-
-            if len(input_dims) > 2 :
-                in_y_0 = (_ // s_x) * ((original_input_dims[1] + s_y - 1)// s_y) - overlap if s_y > 1 else 0
-                in_bounds = [(max(in_x_0, 0), max(in_y_0, 0)), (min(in_x_0 + input_dims[0], original_input_dims[0]), min(in_y_0 + input_dims[1], original_input_dims[1]))]
-                #check the validity of the partition
-                if in_bounds[1][1] - in_bounds[0][1] < 1:
-                    raise ValueError(f"Invalid partition for spatial dimensions, please increase the split factor for layer: {layer.name}")
                 
             if len(output_dims) > 2:
-                out_y_0 = (_ // s_x) * output_dims[1] if s_y > 1 else 0
+                out_y_0 = int(np.sum([output_dimensions[_%s_x, i][1] for i in range(0, _//s_x)])) 
                 out_bounds = [(max(out_x_0, 0), max(out_y_0, 0)), (min(out_x_0 + output_dims[0], original_output_dims[0]), min(out_y_0 + output_dims[1], original_output_dims[1]))]
                 #check the validity of the partition
                 if out_bounds[1][1] - out_bounds[0][1] < 1:
+                    print(f" The boudaries of the partition are invalid: {in_bounds} {out_bounds}")
+                    raise ValueError(f"Invalid partition for spatial dimensions, please increase the split factor for layer: {layer.name}")
+                
+            if len(input_dims) > 2 :
+                receptive_region = compute_receptive_field(out_bounds, layer)
+                in_bounds = [(max(receptive_region[0][0], 0), max(receptive_region[0][1], 0)), (min(receptive_region[1][0], original_input_dims[0]), min(receptive_region[1][1], original_input_dims[1]))]
+                #check the validity of the partition
+                if in_bounds[1][1] - in_bounds[0][1] < 1:
+                    print(f" The boudaries of the partition are invalid: {in_bounds} {out_bounds}")
                     raise ValueError(f"Invalid partition for spatial dimensions, please increase the split factor for layer: {layer.name}")
 
+            output_dimensions[_%s_x, _//s_x] = output_dims
 
             cur = PartitionInfo(layer = layer, 
                                 in_bounds = in_bounds,
@@ -783,7 +823,7 @@ def _build_partitions_from_layer(layer, spat = 0, out_ch = 1, in_ch = 1):
         p.MACs, p.FLOPs, p.tot_size = analyze_partition(p)
     return partitions
 
-def _adaptive_parsel(layer):
+def _adaptive_parsel(layer, chosen_splitting = "spatial" ,FLOP_threshold = 20000):
     """
     The functions selects the best partitioning strategy for a layer, based on the layer's characteristics.
     The main objective is to create the partitions for a layer with the lowest values for the splitting factors that, at the same time,
@@ -805,38 +845,35 @@ def _adaptive_parsel(layer):
     - an integer, representing the space that will be needed for the partitions of the layer
     """
 
-    # Check the type of the layer
-    if isinstance(layer, (layers.InputLayer, layers.Reshape, layers.ZeroPadding1D, layers.ZeroPadding2D, layers.Identity)):
-        return 0,1,1
-    elif isinstance(layer, layers.Flatten):
-        #check the previous layer
-        prev_layer = layer._inbound_nodes[0].inbound_layers
-        split_tuple =  _adaptive_parsel(prev_layer)
-        return split_tuple
-    elif layer.name == "max_pooling2d":
-        return 2,1,1
-    elif isinstance(layer, layers.Add):
-        return 2,1,1
-    elif isinstance(layer, (layers.ReLU, layers.ELU, layers.Activation)) and layer.activation.__name__ != 'softmax':
-        return 2,1,1
-    elif isinstance(layer, (layers.MaxPooling1D, layers.AveragePooling1D, layers.GlobalAveragePooling1D, layers.GlobalMaxPooling1D)):
-        return 2,1,1
-    elif isinstance(layer, (layers.MaxPooling2D, layers.AveragePooling2D, layers.GlobalAveragePooling2D, layers.GlobalMaxPooling2D)):
-        return 0,1,1
-    elif isinstance(layer, layers.BatchNormalization):
-        return 2,1,1
-    elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
-        return 1,1,3
-    elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
-        return 2,1,1
-    elif isinstance(layer, (layers.Conv1DTranspose, layers.Conv2DTranspose)):
-        return 2,1,1
-    elif isinstance(layer, layers.Dropout):
-        return 2,1,1
-    elif isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
-        return 2,1,1
-    else:
-        raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))
+    # first check the output shape of the layer
+
+    available_splitting = ['spatial', 'output', 'input']
+    splitting_factors = {"spatial" : 0, "output": 1, "input": 1}
+    print("====================================================")
+    print(f"Adaptive partitioning for layer {layer.name}")
+    print(f"Available splitting strategies: {available_splitting}")
+    print(f"Initial splitting factors: {splitting_factors}")
+
+    # if the layer is a dense layer type or the layer before 
+    if len(layer.output.shape) < 3:
+        available_splitting.remove('output')
+        available_splitting.remove('input')
+
+    # until the MACs for every single partition of the layer are under the threshold, keep on incrementing the
+    # slitting factor for the chosen splitting strategy: if the splitting strategy is not available (only spatial splitting is available)
+    # then split by spatial dimensions
+    while True:
+        partitions = _build_partitions_from_layer(layer, splitting_factors['spatial'], splitting_factors['output'], splitting_factors['input'])
+        if all([p.FLOPs < FLOP_threshold for p in partitions]):
+            break
+        splitting_factors[chosen_splitting] += 1
+        print(f"Splitting factor for {chosen_splitting} increased to {splitting_factors[chosen_splitting]}")
+        if splitting_factors[chosen_splitting] > 6:
+            splitting_factors[chosen_splitting] = 6
+            break
+    print("====================================================")
+    return splitting_factors['spatial'], splitting_factors['output'], splitting_factors['input']
+
 
 
 def _build_spatial_deps(partitions_layer1 : List[PartitionInfo], partitions_layer2: List[PartitionInfo], deps: Dict = None):
@@ -858,7 +895,7 @@ def _build_spatial_deps(partitions_layer1 : List[PartitionInfo], partitions_laye
     partitions_1 = partitions_layer1
     partitions_2 = partitions_layer2
 
-    # we then build the dependencies between the partitions: to do so, we must look at the spatial input and ouput dimensions of the partitions
+     # we then build the dependencies between the partitions: to do so, we must look at the spatial input and ouput dimensions of the partitions
     # of the two layers and check if they 'overlap'
     deps = {} if deps is None else deps
     for p1 in partitions_1:
@@ -878,12 +915,13 @@ def _build_spatial_deps(partitions_layer1 : List[PartitionInfo], partitions_laye
                 # 1D layers
                 # OSS: for the dense layers, depependencies are always present between the partitions of a layer and the partitions of the next layer,
                 # in partitcular, the communication size is equal to the number of output neurons of the partition of the first layer
-                overlap = p1.out_bounds[1][0] - p1.out_bounds[0][0]
-                if overlap >0:
-                    if deps.get((p1.id, p2.id)) is not None:
-                        deps[(p1.id, p2.id)] += overlap
-                    else:
-                        deps[(p1.id, p2.id)] = overlap
+                if p1.out_bounds[0][0] <= p2.in_bounds[1][0] and p1.out_bounds[1][0] >= p2.in_bounds[0][0]:
+                    overlap = (min(p1.out_bounds[1][0], p2.in_bounds[1][0]) - max(p1.out_bounds[0][0], p2.in_bounds[0][0]))
+                    if overlap >0:
+                        if deps.get((p1.id, p2.id)) is not None:
+                            deps[(p1.id, p2.id)] += overlap
+                        else:
+                            deps[(p1.id, p2.id)] = overlap
             elif len(p1.out_bounds[0]) > 1 and len(p2.in_bounds[0]) == 1:
                 # Border case: 2D layer -> 1D layer
                 # in this case, we assume that all the outputs of the 2D layer are connected to the 1D layer
@@ -1106,6 +1144,7 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
 
     # go over the partitions: for each partitions, check if that partition is the head (merger) of a group of partitions
     # if so, go down the chain of partitions and save them in a list
+    
     for layer_name, partitions_list in partitions.items():
         for p in partitions_list:
             if p.merger is True:
@@ -1119,7 +1158,7 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
                             next_p = p
                             break
                     to_group.append(next_p)
-
+                
                 # check the total size of the group of partitions: if it is smaller than the memory constraints, we can keep the group as it is
                 # otherwise, we split the group
 
@@ -1160,9 +1199,7 @@ def _section_partitions(partitions: Dict[str, List[PartitionInfo]], partitions_d
                                 p.merger = False
                                 # p.out_merging = group[p_id+1].id
 
-                
-
-        return 
+    return 
 
 
 
@@ -1299,7 +1336,8 @@ def build_partitions(model: keras.Model, grouping: bool = True,verbose : bool = 
 
     partitions = {}
     partitions_deps = {}
-    pe = PE()
+    pe = PE(10000)
+    print("PE memory size: ", pe.mem_size)
     layer_deps = _build_layer_deps(model)
 
     # first run for the input layer

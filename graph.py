@@ -663,7 +663,7 @@ def model_to_graph(model, verbose = False):
                 comm_size = int(weight) 
                 if comm_size == 0:
                     comm_size = 0 if weight == 0 else 1
-                processing_time =int(0.5 * comm_size)
+                processing_time =int(comm_size)
 
                 if comm_size > 0:
                     dep_graph.add_dependency_fully_qualified(first_node, second_node , id = dep_id, type = comm_type , size = comm_size, pt_required= processing_time , cl = 0, dep= [-1] if isinstance(partition1.layer, layers.InputLayer) else [partition1.task_id])

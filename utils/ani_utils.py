@@ -26,6 +26,8 @@ import json
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import matplotlib.ticker as ticker
+from matplotlib.ticker import MaxNLocator
 import matplotlib.pyplot as plt
 PATH_TO_SIMULATOR = os.path.join("/Users/edoardocabiati/Desktop/Cose_brutte_PoliMI/_tesi/restart", "lib")
 sys.path.append(PATH_TO_SIMULATOR)
@@ -577,7 +579,7 @@ class NoCPlotter:
 
         # Salva l'animazione se file_name è specificato
         if file_name:
-            ani.save(file_name, writer='imagemagick', fps=fps)
+            ani.save(file_name, writer='imagemagick', fps=fps, dpi= 100)
 
         plt.show()
             
@@ -608,8 +610,205 @@ class NoCPlotter:
         plt.show()
     ###############################################################################
 
+# Thanks to J. Jastrzebski for the original code of this class
+class NoCTimelinePlotter(NoCPlotter):
+    """Subclass for 2D timeline visualization. Inherits all NoCPlotter methods."""
     
+    def __init__(self):
+        super().__init__()
+        self.fig2d = None  # Separate figure for 2D timeline
+        self.ax2d = None
+        self.node_events = {}  # Stores event data: {node: {"comp": [(start, duration)], "traf": [...]}}
 
+    def setup_timeline(self, logger, config_file):
+        """Initialize 2D timeline figure and preprocess events."""
+        # Initialize parent class with architecture config
+        self.init(config_file)  # Loads node data from config_file
+        self._preprocess_events(logger)
+        self.fig2d, self.ax2d = plt.subplots(figsize=(10, 6))
+        self.ax2d.set_xlabel("Cycle")
+        self.ax2d.set_ylabel("Node")
+        self.ax2d.grid(False)
+        self.max_cycle = logger.events[-1].cycle
+
+    def _preprocess_events(self, logger):
+        """Extract computation/traffic events per node.
+           Information about Computing, Traffic (out and in) and Reconfiguration 
+           is collected from the logger
+        """
+        self.node_events = {i: {"comp": [], "recon": [], "traf_out": [], "traf_in": [], "traf_between":[], "reply_in": [], "reply_out": []} for i in range(len(self.points[1]))}
+    
+        # Process computation events
+        for event in logger.events:
+            ######### COMPUTATIONS #######
+            if event.type == nocsim.EventType.START_COMPUTATION:
+                node = event.info.node
+                start = event.cycle
+                
+                # Find matching END_COMPUTATION with error handling
+                try:
+                    end_event = next(
+                        e for e in logger.events 
+                        if e.type == nocsim.EventType.END_COMPUTATION 
+                        and e.info.node == node
+                        and e.cycle > start  # Ensure valid duration
+                    )
+                    duration = end_event.cycle - start
+                    self.node_events[node]["comp"].append((start, duration))
+                except StopIteration:
+                    print(f"Warning: No END_COMPUTATION found for node {node} at cycle {start}")
+                    continue 
+            ######### TRAFFIC #######    
+            elif event.type == nocsim.EventType.OUT_TRAFFIC:
+                #the same information is stored in OUT_TRAFFIC and IN_TRAFFIC
+                #note from Edoardo: 
+                # because it is used to record when the packet actually arrives in the chronologiacal log: 
+                # both events (OUT_TRAFFIC and IN_TRAFFIC) point to the same info, which records the hystory of the related traffic, 
+                # whose TrafficEventInfo is also pointed by both
+                #Here we want to collect: sending node, receiving node, time of sending, time of receiving
+                #Communication between the nodes is denoted with different color
+                
+                id_message = event.additional_info
+                communication_type = event.ctype #comunication type of the event
+                start = event.cycle
+                sending_node = event.info.source
+                receiving_node = event.info.dest
+                
+                duration = 0
+                for history_bit in event.info.history:
+                    if history_bit.start >= start and history_bit.end >= start:
+                        
+                        if history_bit.rsource == history_bit.rsink == sending_node:
+                            duration = history_bit.end - history_bit.start 
+                            self.node_events[history_bit.rsource]["traf_out" if communication_type != 4 else "reply_out"].append((history_bit.start, duration))
+                            
+                        elif history_bit.rsource == history_bit.rsink == receiving_node:
+                            duration = history_bit.end - history_bit.start 
+                            self.node_events[history_bit.rsink]["traf_in" if communication_type != 4 else "reply_in"].append((history_bit.start, duration))
+                        
+                        elif history_bit.rsource != history_bit.rsink:
+                            duration = history_bit.end - history_bit.start
+                            # self.node_events[history_bit.rsource]["traf_between"].append((history_bit.start, duration))
+                            # self.node_events[history_bit.rsink]["traf_between"].append((history_bit.start, duration))
+                        else: 
+                            breakpoint()
+                            raise ValueError(f"Error: I don't know what to do with this history bit {history_bit} of {event} ")
+                    else:
+                        raise ValueError(f"Error: No history bit found for OUT_TRAFFIC event at cycle {start}")
+            
+            ######### RECONFIGURATION #######
+            elif event.type == nocsim.EventType.START_RECONFIGURATION:
+                node = event.additional_info
+                start = event.cycle
+                
+                # Find matching END_RECONFIGURATION with error handling
+                try:
+                    end_event = next(
+                        e for e in logger.events 
+                        if e.type == nocsim.EventType.END_RECONFIGURATION 
+                        and e.additional_info== node
+                        and e.cycle > start  # Ensure valid duration
+                    )
+                    duration = end_event.cycle - start
+                    self.node_events[node]["recon"].append((start, duration))
+                except StopIteration:
+                    print(f"Warning: No END_RECONFIGURATION found for node {node} at cycle {start}")
+                    continue 
+            ######### Events to omit #####
+            elif event.type == nocsim.EventType.START_SIMULATION or nocsim.EventType.END_SIMULATION:
+                continue
+            else:
+                raise TypeError(f"Unknown event type: {event.type}") 
+                        
+    
+    def _print_node_events(self):
+        """Print event data for debugging."""
+        #node_events[node]["comp"]
+        for node, events in self.node_events.items():
+            print(f"Node {node}:")
+            print(f"Computation events and duration: {events['comp']}")
+            print(f"Traffic events IN and duration: {events['traf_in']}")
+            print(f"Traffic events OUT and duration: {events['traf_out']}")
+            print(f"Traffic events BETWEEN and duration: {events['traf_between']}")
+            print(f"Reconfiguration events and duration: {events['recon']}")
+            print()
+
+    def plot_timeline(self, filename, legend=True, hihlight_xticks=True):
+        """Draw horizontal bars for events."""
+        
+        #(key, color, label, alpha)
+        event_types = [
+        ('comp', 'tomato', 'Computation', 1.0), 
+        ('recon', 'seagreen', 'Reconfiguration', 1.0),
+        ('traf_out', 'cornflowerblue', 'Traffic PE out', 0.7),
+        ('traf_in', 'orange', 'Traffic PE in', 0.7),
+        ('traf_between', 'silver', 'Traffic NoC', 0.3),
+        ('reply_in','turquoise', 'Reply PE in', 0.7),
+        ('reply_out','gold', 'Reply PE out', 0.7)
+        ]
+    
+        # Track used labels to prevent duplicates in legend
+        used_labels = set()
+
+        for node, events in self.node_events.items():
+            has_events = False  # Flag to check if node has any events
+            
+            for event_key, color, label, alpha in event_types:
+                event_list = events.get(event_key, [])
+                if event_list:
+                    has_events = True
+                    # Use label only if it hasn't been used before
+                    current_label = label if label not in used_labels else None
+                    self.ax2d.broken_barh(
+                        event_list,
+                        (node - 0.4, 0.8),
+                        facecolors=color,
+                        label=current_label,
+                        alpha=alpha
+                    )
+                    if current_label:
+                        used_labels.add(label)
+            
+            # Handle nodes with no events
+            if not has_events:
+                print(f"No events found for node {node}")
+        
+        # Set y-ticks to node IDs
+        self.ax2d.set_yticks(range(len(self.points[1])))
+        #for debug purposes, only show first 2 nodes
+        #self.ax2d.set_yticks(range(2))
+        
+        # set x-ticks to cycle numbers
+        self.ax2d.set_xlim(0, self.max_cycle)
+        # Auto-adjust ticks
+        self.ax2d.xaxis.set_major_locator(ticker.MaxNLocator(nbins=15))
+        self.ax2d.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+        
+        # Add vertical lines at each major x-tick
+        if hihlight_xticks:
+            for tick in self.ax2d.xaxis.get_major_locator().tick_values(self.ax2d.get_xlim()[0], self.ax2d.get_xlim()[1]):
+                self.ax2d.axvline(x=tick, color='grey', linestyle='-', linewidth=0.5, zorder = 0)
+
+        # Add horizontal lines at the corners of the x nodes
+        for node in range(len(self.points[1])):
+            self.ax2d.axhline(y=node - 0.4, color='grey', linestyle='--', linewidth=0.5)
+            self.ax2d.axhline(y=node + 0.4, color='grey', linestyle='--', linewidth=0.5)
+
+        if legend:
+            self.ax2d.legend(
+            #loc='upper right',
+            #bbox_to_anchor=(1.17, 1.0),
+            #borderaxespad=0.0,
+            #fontsize='small',
+            #title='Event Types',
+            title_fontsize='medium',
+            frameon=True
+            )
+        if filename: 
+            self.fig2d.savefig(filename, dpi=300)
+            print(f"Timeline graph saved to {filename}")
+        plt.close(self.fig)
+            
 
 
 
