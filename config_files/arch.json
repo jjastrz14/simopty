@@ -5,14 +5,17 @@
             "n" : 2,
             "use_read_write" : 1,
             "routing_function" : "dim_order",
-            "num_vcs" : 16,
+            "num_vcs" : 8,
             "user_defined_traffic" : 1,
             "watch_out" : "-",
             "logger" : 1,
             "reconfiguration": 1,
             "reconf_batch_size": 0,
-            "reconf_cycles": 1.0,
-            "max_pe_mem": 400,
-            "flit_size": 64
+            "reconf_cycles": 0.3,
+            "max_pe_mem": 350,
+            "flit_size": 64,
+            "write_reply_time": 1,
+            "write_req_time": 1,
+            "read_req_time": 1
         }
 }

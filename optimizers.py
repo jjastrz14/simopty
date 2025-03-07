@@ -92,7 +92,7 @@ class AntColony(BaseOpt):
 
     optimizerType : ClassVar[Union[str, OptimizerType]] = OptimizerType.ACO
 
-    def __init__(self, optimization_parameters, domain, task_graph):
+    def __init__(self, optimization_parameters, domain, task_graph, seed = None):
         """
         
         Parameters:
@@ -126,6 +126,11 @@ class AntColony(BaseOpt):
         tasks = [task["id"] for task in self.task_graph.get_nodes() if task["id"] != "start"]
         tasks.insert(0, "start")
         self.tasks = tasks
+        
+        self.seed = seed
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
 
 
     def run_and_show_traces(self, single_iteration_func, **kwargs):
@@ -218,6 +223,10 @@ class AntColony(BaseOpt):
         """
         Run the algorithm
         """
+        
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
 
         def single_iteration(i, once_every, rho_step = 0):
             all_paths = self.generate_colony_paths()
@@ -403,7 +412,7 @@ class ParallelAntColony(AntColony):
     optimizerType : ClassVar[Union[str, OptimizerType]] = OptimizerType.ACO
 
 
-    def __init__(self, number_of_processes, optimization_parameters, domain, task_graph):
+    def __init__(self, number_of_processes, optimization_parameters, domain, task_graph, seed=None):
         """
         
         Parameters:
@@ -417,7 +426,7 @@ class ParallelAntColony(AntColony):
 
         """
 
-        super().__init__(optimization_parameters, domain, task_graph)
+        super().__init__(optimization_parameters, domain, task_graph, seed)
 
         # The number of executors that will be used to run the algorithm
         self.n_processes = number_of_processes
@@ -426,7 +435,10 @@ class ParallelAntColony(AntColony):
         # self.logger.setLevel(logging.INFO)
 
         self.ants = [Ant(i, self.task_graph, self.domain, self.tasks, self.par.alpha, self.par.beta) for i in range(self.par.n_ants)]
-
+        
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
         # --- Pheromone and Heuristic Information ---
         # The pheromone and heuristic matrices are shared arrays among the ants
 
@@ -465,6 +477,10 @@ class ParallelAntColony(AntColony):
         """
         Run the algorithm
         """
+        
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
 
         def single_iteration(i, once_every, rho_step = 0):
             all_paths = self.generate_colony_paths()
@@ -525,6 +541,10 @@ class ParallelAntColony(AntColony):
         Run the algorithm and save to json initial path, middle path and best path
         Function for vis and debug purposes
         """
+        
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
 
         def single_iteration(i, once_every, rho_step=0):
             all_paths = self.generate_colony_paths()

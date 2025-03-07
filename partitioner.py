@@ -22,7 +22,7 @@ from utils.partitioner_utils import *
 import models 
 
 
-def partitioner(model, n_pe = 2, source = 0, drain = 3):
+def partitioner(model, n_pe = 2, source = 0, drain = 3, namefile_task_graph="visual/task_graph_conv.png"):
     
     grid = dm.Grid()
     grid.init(n_pe, 2, dm.Topology.TORUS)
@@ -37,7 +37,7 @@ def partitioner(model, n_pe = 2, source = 0, drain = 3):
     task_graph = model_to_graph(model, source = source, 
                                 drain = drain, 
                                 grouping = False,
-                                namefile_task_graph = "visual/task_graph_conv.png",
+                                namefile_task_graph = namefile_task_graph,
                                 verbose=True)
     #plot_graph(task_graph, file_path = "../task_graph.png")
     

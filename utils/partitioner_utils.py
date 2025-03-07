@@ -870,11 +870,10 @@ def _adaptive_parsel(layer):
         '''
         pass
     
-    def _equal_MACs_per_partition(layer,partition_strategy="spatial_max"):
+    def _equal_MACs_per_partition(layer, partition_strategy="spatial_max"):
         '''
-        A subroutine to split the layers in such a way that the MACs are equally distributed among the partitions
+        Splits the layer into partitions with equal MACs, prioritizing splits in the specified dimension.
         '''
-        # Function to compute divisors of a number
         def get_divisors(n):
             if n <= 0:
                 return []
@@ -885,35 +884,46 @@ def _adaptive_parsel(layer):
                     divisors.add(n // i)
             return sorted(divisors)
         
-        # Assuming the layer has attributes for output spatial dimensions, output channels, and input channels
-        H_in = layer.input[0].shape[0]
-        #W_out = layer.output[0].shape[1]
-        #S = H_out * W_out
-        C_out = layer.output[0].shape[2]
-        C_in = layer.input[0].shape[-1]
+        def get_non_extreme_divisors(n):
+            divisors = get_divisors(n)
+            return [d for d in divisors if d != 1 and d != n]
         
-        # Get divisors for each dimension
-        sp_divisors = get_divisors(H_in)
-        out_divisors = get_divisors(C_out)
-        in_divisors = get_divisors(C_in)
+        H_in = layer.input[0].shape[0]  # Input spatial dimension (height)
+        C_out = layer.output[0].shape[2]  # Output channels
+        C_in = layer.input[0].shape[-1]   # Input channels
         
-        # Select the maximum possible divisors to split into the maximum number of partitions
-        # This aims to increase the solution space for mapping
+        #print(f"Layer: {layer.name}, H_in: {H_in}, C_out: {C_out}, C_in: {C_in}")
+        
+        sp_divisors = get_non_extreme_divisors(H_in)
+        out_divisors = get_non_extreme_divisors(C_out)
+        in_divisors = get_non_extreme_divisors(C_in)
+        
+        def select_max(divisors):
+            return max(divisors) if divisors else 1
+        
+        def select_min(divisors):
+            return min(divisors) if divisors else 1
+        
         if partition_strategy == "spatial_max":
-            sp = sp_divisors[-3] if sp_divisors else 0 #if no then no splitting
-            out_ch = out_divisors[1] if out_divisors else 1
-            in_ch = in_divisors[1] if in_divisors else 1
+            sp = select_max(sp_divisors)
+            out_ch = select_min(out_divisors)
+            in_ch = select_min(in_divisors)
         elif partition_strategy == "input_max":
-            sp = sp_divisors[1] if sp_divisors else 0 #if no then no splitting
-            out_ch = out_divisors[1] if out_divisors else 1
-            in_ch = in_divisors[-2] if in_divisors else 1
+            in_ch = select_max(in_divisors)
+            sp = select_min(sp_divisors)
+            out_ch = select_min(out_divisors)
         elif partition_strategy == "output_max":
-            sp = sp_divisors[1] if sp_divisors else 0 #if no then no splitting
-            out_ch = out_divisors[-2] if out_divisors else 1
-            in_ch = in_divisors[1] if in_divisors else 1
-        else: 
-            raise ValueError("Invalid max splitting strategy")
+            out_ch = select_max(out_divisors)
+            sp = select_min(sp_divisors)
+            in_ch = select_min(in_divisors)
+        else:
+            raise ValueError(f"Invalid partition strategy: {partition_strategy}")
         
+        # Ensure splits are at least 1 (no split for in or out, for sp just one split)
+        sp = max(int(sp), 1)
+        out_ch = max(int(out_ch), 1)
+        in_ch = max(int(in_ch), 1)
+            
         return sp, out_ch, in_ch
     
     #2^splitting factor for spatial - number of partinions, just for the spatial partitioning
@@ -940,8 +950,8 @@ def _adaptive_parsel(layer):
         return 0,1,6
     elif isinstance(layer, (layers.Conv1D, layers.Conv2D)):
             # 0, 1, 1 min values
-        #sp, out_ch, in_ch = 0, 1, 3
-        sp, out_ch, in_ch = _equal_MACs_per_partition(layer,partition_strategy="input_max")
+        sp, out_ch, in_ch = 0, 1, 3
+        #sp, out_ch, in_ch = _equal_MACs_per_partition(layer,partition_strategy="input_max")
         return sp, out_ch, in_ch
     elif isinstance(layer, (layers.DepthwiseConv2D, layers.DepthwiseConv1D)):
         return 1,1,1 
@@ -950,7 +960,7 @@ def _adaptive_parsel(layer):
     elif isinstance(layer, layers.Dropout):
         return 0,1,1 
     elif isinstance(layer, layers.Dense) or (isinstance(layer, layers.Activation) and layer.activation.__name__ == 'softmax'):
-        sp, out_ch, in_ch = 0,1,6 #_equal_MACs_per_partition(layer,partition_strategy="spatial_max")
+        sp, out_ch, in_ch = 0,1,3 #_equal_MACs_per_partition(layer,partition_strategy="spatial_max")
         return sp, out_ch, in_ch
     else:
         raise ValueError("Invalid layer type: {} of type {}".format(layer.name, type(layer)))

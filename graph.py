@@ -588,7 +588,7 @@ def model_to_graph(model, source, drain, grouping = True, namefile_task_graph = 
         layer_id = 0
    
         # DIRTY FIX: the scaling factors should be included in restart rather than simopty
-        mem_scaling_factor = 64 # byte/flit (comment: I think it's 64 bits per a fleet)
+        mem_scaling_factor = 1 #SCALING SWITCHED OFF # byte/flit (comment: I think it's 64 bits per a fleet)
         comp_scaling_factor = 100 #100 # FLOPs per cycle
 
         # assign task ids to the partitions

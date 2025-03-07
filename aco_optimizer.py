@@ -18,10 +18,10 @@ import partitioner
 from dirs import *
       
 
-def single_aco(params, grid, task_graph, file_name_json = "/test.json", save_more_json = False):
+def single_aco(params, grid, task_graph, file_name_json = "/test.json", save_more_json = False, seed = None):
 
     print("Starting Single ACO...")
-    opt = op.AntColony(params, grid, task_graph)
+    opt = op.AntColony(params, grid, task_graph, seed = seed)
     
     if save_more_json:
         shortest = opt.run_with_saves(once_every=1, show_traces= False) #run with init, middle and best saves
@@ -38,11 +38,11 @@ def single_aco(params, grid, task_graph, file_name_json = "/test.json", save_mor
     #stats = np.load("visual/conv_stats.npy", allow_pickle=True).item()
     #print(stats)
 
-def parallel_ACO(params, grid, task_graph, n_procesors = 10, file_name_json = "/test.json", save_more_json = False):
+def parallel_ACO(params, grid, task_graph, n_procesors = 10, file_name_json = "/test.json", save_more_json = False, seed = None):
     
     n_procs = n_procesors 
     
-    opt = op.ParallelAntColony(n_procs, params, grid, task_graph)
+    opt = op.ParallelAntColony(n_procs, params, grid, task_graph, seed = seed)
     
     print("Starting Parallel ACO...")
     
@@ -94,7 +94,8 @@ if __name__ == "__main__":
     
     grid, task_graph = partitioner.partitioner(model, n_pe = 4, source = 0, drain = 3)
     
-    single_aco(params, grid, task_graph, file_name_json = "/test.json", save_more_json = False)
+    single_aco(params, grid, task_graph, file_name_json = "/test.json", 
+               save_more_json = False, seed = None)
     
     
 

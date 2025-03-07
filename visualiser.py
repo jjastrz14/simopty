@@ -46,12 +46,23 @@ def create_logger(path_to_json = "/test.json", verbose = False):
     
     if verbose: 
         for event in logger.events:
-            print(event)
-            print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
-                    f"Info: {event.info}")
-        #     if event.type == nocsim.EventType.START_COMPUTATION:
-        #         print(f"Type: {event.type}, Event info: {event.info}")
-        #         print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")
+            #print(event)
+            #print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+                    #f"Info: {event.info}")
+            
+            if event.type == nocsim.EventType.OUT_TRAFFIC:
+                print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+                print(f"History: {event.info.history}")
+            if event.type == nocsim.EventType.IN_TRAFFIC:
+                print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+                print(f"History: {event.info.history}")
+            if event.type == nocsim.EventType.START_COMPUTATION:
+                print(f"Type: {event.type}, Event info: {event.info}")
+                print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")  
+            if event.type == nocsim.EventType.START_RECONFIGURATION:
+                print(f"Type: {event.type}, Event info: {event.info}")
+                print(f"Node ID: {event.additional_info}")
+                
         #     elif event.type == nocsim.EventType.END_COMPUTATION:
         #         print(f"Type: {event.type}, Event info: {event.info}")
         #         print(f"Node ID: {event.info.node}, Add_info Node ID {event.additional_info}")
@@ -89,7 +100,7 @@ def plot_3d_animaiton(path_to_json = "/test.json", fps = 2, gif_path = "visual/t
 
 def plot_timeline(path_to_json = "/test.json", timeline_path = "visual/test.png", verbose = False):
     
-    logger, path_data = create_logger(path_to_json)
+    logger, path_data = create_logger(path_to_json, verbose = verbose)
     
     # Initialize timeline plotter
     plotter_timeline = NoCTimelinePlotter()
@@ -123,9 +134,9 @@ def generate_animation_timeline_3d_plot(path_to_json = "/test.json", fps = 2, an
 if __name__ == "__main__":
 
     
-    plot_timeline("/test.json", "visual/timeline.png", verbose = False)
+    #plot_timeline("/test_16_flit.json", "visual/timeline_test.png", verbose = True)
     #plot_3d_animaiton("/test.json", fps = 2, gif_path = "visual/test.gif")
-    #generate_animation_timeline_3d_plot("/test.json", fps = 2, animation_path = "visual/combined_animation.gif")
+    generate_animation_timeline_3d_plot("/test_64_flit.json", fps = 1, animation_path = "visual/flit_64.mp4")
     print("Done!")
     
 

@@ -644,7 +644,16 @@ class NoCTimelinePlotter(NoCPlotter):
            Information about Computing, Traffic (out and in) and Reconfiguration 
            is collected from the logger
         """
-        self.node_events = {i: {"comp": [], "recon": [], "traf_out": [], "traf_in": [], "traf_between":[]} for i in range(len(self.points[1]))}
+        self.node_events = {
+            i: {
+                "comp": [],         # Each entry: {"start": ..., "duration": ..., "id_task": ..., "info": ...}
+                "recon": [],        # Same structure as "comp"
+                "traf_out": [],     # Each entry: {"start": ..., "duration": ..., "id_task": ..., "type": ..., "info": ...}
+                "traf_in": [],      # Same structure as "traf_out"
+                "traf_between": [], # Same structure as "traf_out"
+            } 
+            for i in range(len(self.points[1]))
+}
     
         # Process computation events
         for event in logger.events:
@@ -652,6 +661,7 @@ class NoCTimelinePlotter(NoCPlotter):
             if event.type == nocsim.EventType.START_COMPUTATION:
                 node = event.info.node
                 start = event.cycle
+                task_id = event.additional_info
                 
                 # Find matching END_COMPUTATION with error handling
                 try:
@@ -659,10 +669,15 @@ class NoCTimelinePlotter(NoCPlotter):
                         e for e in logger.events 
                         if e.type == nocsim.EventType.END_COMPUTATION 
                         and e.info.node == node
+                        and e.additional_info == task_id
                         and e.cycle > start  # Ensure valid duration
                     )
                     duration = end_event.cycle - start
-                    self.node_events[node]["comp"].append((start, duration))
+                    self.node_events[node]["comp"].append({
+                                        "start": start,
+                                        "duration": duration,
+                                        "id_task": task_id
+                                        })
                 except StopIteration:
                     print(f"Warning: No END_COMPUTATION found for node {node} at cycle {start}")
                     continue 
@@ -675,31 +690,57 @@ class NoCTimelinePlotter(NoCPlotter):
                 # whose TrafficEventInfo is also pointed by both
                 #Here we want to collect: sending node, receiving node, time of sending, time of receiving
                 #Communication between the nodes is denoted with different collor
-                
                 id_message = event.additional_info
                 communication_type = event.ctype #comunication type of the event
                 start = event.cycle
                 sending_node = event.info.source
                 receiving_node = event.info.dest
                 
+                #types of the messages in restart
+                #READ_REQ = 1,
+                #READ_ACK = 3, // read reply type is substituted with read ack
+                #READ = 5,
+                #WRITE_REQ = 2,
+                #WRITE_ACK = 4, // write reply type is substituted with write ack
+                #WRITE  = 6,
+                #ANY = 0
+                
                 duration = 0
                 for history_bit in event.info.history:
                     if history_bit.start >= start and history_bit.end >= start:
-                        
                         if history_bit.rsource == history_bit.rsink == sending_node:
-                            duration = history_bit.end - history_bit.start 
-                            self.node_events[history_bit.rsource]["traf_out"].append((history_bit.start, duration))
+                            duration = history_bit.end - history_bit.start
+                            self.node_events[history_bit.rsource]["traf_out"].append({
+                                        "start": history_bit.start,
+                                        "duration": duration,
+                                        "id_task": id_message,
+                                        "com_type": communication_type
+                                        })
                             
                         elif history_bit.rsource == history_bit.rsink == receiving_node:
-                            duration = history_bit.end - history_bit.start 
-                            self.node_events[history_bit.rsink]["traf_in"].append((history_bit.start, duration))
+                            duration = history_bit.end - history_bit.start
+                            self.node_events[history_bit.rsink]["traf_in"].append({
+                                        "start": history_bit.start,
+                                        "duration": duration,
+                                        "id_task": id_message,
+                                        "com_type": communication_type
+                                        })
                         
                         elif history_bit.rsource != history_bit.rsink:
                             duration = history_bit.end - history_bit.start
-                            self.node_events[history_bit.rsource]["traf_between"].append((history_bit.start, duration))
-                            self.node_events[history_bit.rsink]["traf_between"].append((history_bit.start, duration))
+                            self.node_events[history_bit.rsource]["traf_between"].append({
+                                        "start": history_bit.start,
+                                        "duration": duration,
+                                        "id_task": id_message,
+                                        "com_type": communication_type
+                                        })
+                            self.node_events[history_bit.rsink]["traf_between"].append({
+                                        "start": history_bit.start,
+                                        "duration": duration,
+                                        "id_task": id_message,
+                                        "com_type": communication_type
+                                        })
                         else: 
-                            breakpoint()
                             raise ValueError(f"Error: I don't know what to do with this history bit {history_bit} of {event} ")
                     else:
                         raise ValueError(f"Error: No history bit found for OUT_TRAFFIC event at cycle {start}")
@@ -718,7 +759,10 @@ class NoCTimelinePlotter(NoCPlotter):
                         and e.cycle > start  # Ensure valid duration
                     )
                     duration = end_event.cycle - start
-                    self.node_events[node]["recon"].append((start, duration))
+                    self.node_events[node]["recon"].append({
+                                        "start": start,
+                                        "duration": duration
+                                        })
                 except StopIteration:
                     print(f"Warning: No END_RECONFIGURATION found for node {node} at cycle {start}")
                     continue 
@@ -741,41 +785,69 @@ class NoCTimelinePlotter(NoCPlotter):
             print(f"Reconfiguration events and duration: {events['recon']}")
             print()
 
-    def plot_timeline(self, filename, legend=True, hihlight_xticks=True):
+    def plot_timeline(self, filename, legend=True, hihlight_xticks=True, annoate_events = False):
         """Draw horizontal bars for events."""
         
-        #(key, color, label, alpha)
         event_types = [
         ('comp', 'tomato', 'Computation', 1.0), 
         ('recon', 'seagreen', 'Reconfiguration', 1.0),
         ('traf_out', 'dodgerblue', 'Traffic PE out', 0.7),
         ('traf_in', 'darkorange', 'Traffic PE in', 0.7),
-        ('traf_between', 'silver', 'Traffic NoC', 0.3)
-        ]
-    
-        # Track used labels to prevent duplicates in legend
+        ('traf_between', 'silver', 'Traffic NoC', 0.3)]
+
         used_labels = set()
 
         for node, events in self.node_events.items():
-            has_events = False  # Flag to check if node has any events
-            
+            has_events = False
+
             for event_key, color, label, alpha in event_types:
                 event_list = events.get(event_key, [])
                 if event_list:
                     has_events = True
-                    # Use label only if it hasn't been used before
+                    
+                    # Extract (start, duration) for plotting
+                    plot_event_list = [(e["start"], e["duration"]) for e in event_list]
+                    
+                    # Add bars
                     current_label = label if label not in used_labels else None
                     self.ax2d.broken_barh(
-                        event_list,
+                        plot_event_list,
                         (node - 0.4, 0.8),
                         facecolors=color,
                         label=current_label,
-                        alpha=alpha
+                        alpha=alpha,
+                        edgecolor='black',
+                        linewidth=0.5,
+                        linestyle='--'
                     )
                     if current_label:
                         used_labels.add(label)
-            
-            # Handle nodes with no events
+
+                    if annoate_events:
+                        # Add text annotations
+                        for event in event_list:
+                            mid_point = event["start"] + event["duration"] / 2
+                            
+                            # Customize text based on event type
+                            if event_key == "comp":
+                                text = f"Comp\nID:{event['id_task']}"  # Comp shows only task ID
+                            elif event_key in ["traf_out", "traf_in", "traf_between"]:
+                                text = f"Mess\nID:{event['id_task']}\n({event['com_type']})"  # Traffic: ID + type
+                            else:
+                                text = None  # Skip recon/others unless needed
+                            
+                            if text:
+                                self.ax2d.text(
+                                    mid_point,
+                                    node,
+                                    text,
+                                    ha='center',
+                                    va='center',
+                                    color='black',
+                                    fontsize=8,
+                                    clip_on=True
+                                )
+
             if not has_events:
                 print(f"No events found for node {node}")
         
@@ -859,8 +931,9 @@ class SynchronizedNoCAnimator:
 
         # Initialize timeline
         self.timeline_plotter.setup_timeline(self.logger, self.config_file)
-        self.timeline_plotter.ax2d = self.ax2d
-        self.timeline_plotter.plot_timeline(None,legend = False, hihlight_xticks = False)
+        self.timeline_plotter.ax2d = self.ax2d 
+        #Timeliene without legedn, no higlight of the x thick, annotaiton of events - YES
+        self.timeline_plotter.plot_timeline(None,legend = False, hihlight_xticks = False, annoate_events = True)
         
         # Collect artists that need blitting
         self.blit_artists = [self.current_line]
@@ -882,6 +955,10 @@ class SynchronizedNoCAnimator:
             self.noc_plotter.timeStamp
         ]
         
+        # Collect all text artists from the timeline
+        timeline_text_artists = self.ax2d.texts  # Get all text objects in the timeline
+        self.blit_artists.extend(timeline_text_artists)  # Add them to blit list
+        
     def _init_anim(self):
         """Initialization function for blitting"""
         return self.blit_artists
@@ -891,6 +968,7 @@ class SynchronizedNoCAnimator:
         """Add timeline animation elements"""
         self.current_line = self.ax2d.axvline(x=0, color='red', linestyle='--', alpha=0.7)
         self.ax2d.set_xlim(0, int(min(20, self.max_cycle))) #here integers?
+        #self.ax2d.set_xticks(np.arange(0, self.max_cycle + 1, 1))
         self.fig.tight_layout()
 
     def _process_events(self, cycle):
@@ -966,10 +1044,27 @@ class SynchronizedNoCAnimator:
         
         # Update timeline visualization
         self.current_line.set_xdata([frame, frame])
-        if frame > 10:  # Pan viewport after initial cycles
-            self.ax2d.set_xlim((frame - 10), (frame + 10))
+        # ===================================================================
+        # x-axis limits and ticks
+        # ===================================================================
+        window_size = 20  # Total cycles to show in the timeline
         
-        self.ax2d.xaxis.set_major_locator(MaxNLocator(integer=True))
+        # Calculate left/right bounds dynamically
+        left = max(0, frame - window_size//2)  # Center the frame in the window
+        right = left + window_size
+        
+        # Handle edge cases where window exceeds simulation duration
+        if right > self.max_cycle:
+            right = self.max_cycle
+            left = max(0, right - window_size)  # Show last 'window_size' cycles
+        
+        # Apply the calculated bounds
+        self.ax2d.set_xlim(left, right)
+        self.ax2d.set_xticks(np.arange(left, right + 1, 1))  # Ticks every cycle
+        # ===================================================================
+
+            
+        #self.ax2d.xaxis.set_major_locator(MaxNLocator(integer=True))
             
         return self.blit_artists
 
