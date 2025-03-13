@@ -281,6 +281,8 @@ from copy import deepcopy
 import string
 import matplotlib.pyplot as plt
 import math
+from dirs import *
+import json
 
 @dataclass
 class PE:
@@ -886,6 +888,13 @@ def _adaptive_parsel(layer, chosen_splitting = "spatial" ,FLOP_threshold = 20000
             splitting_factors[chosen_splitting] = 6
             break
     print("====================================================")
+    
+    if isinstance(layer, layers.Conv2D):
+        splitting_factors['spatial'] = 0
+        splitting_factors['output'] = 1
+        splitting_factors['input'] = 3
+        
+    
     return splitting_factors['spatial'], splitting_factors['output'], splitting_factors['input']
 
 
@@ -1351,7 +1360,17 @@ def build_partitions(model: keras.Model, grouping: bool = True,verbose : bool = 
 
     partitions = {}
     partitions_deps = {}
-    pe = PE(10000)
+    #read PE memory from json file
+    path_data = ARCH_FILE
+    os.makedirs(os.path.dirname(path_data), exist_ok=True)
+    #take size of PE memory and left rest of the file unchanged
+    with open(path_data, "r") as f:
+        data = json.load(f)
+        pe_memory = data["arch"]["max_pe_mem"]
+
+    pe = PE(pe_memory)
+    #pe = PE()
+    pe = PE(1000)
     print("PE memory size: ", pe.mem_size)
     layer_deps = _build_layer_deps(model)
 

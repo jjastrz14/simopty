@@ -46,7 +46,7 @@ def test_conv(input_shape, verbose = False):
     inputs = layers.Input(shape=input_shape)
     x = layers.Conv2D(4, kernel_size=(3, 3), data_format="channels_last", activation=None) (inputs)
     #x = layers.Dense(3, activation='softmax')(x)
-    #x = layers.Conv2D(4, kernel_size=(3, 3), data_format="channels_last", activation=None) (x)
+    x = layers.Conv2D(4, kernel_size=(3, 3), data_format="channels_last", activation=None) (x)
     model = keras.Model(inputs=inputs, outputs=x)
     
     

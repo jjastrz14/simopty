@@ -654,7 +654,9 @@ class NoCTimelinePlotter(NoCPlotter):
                 "traf_out": [],     # Each entry: {"start": ..., "duration": ..., "id_task": ..., "type": ..., "info": ...}
                 "traf_in": [],      # Same structure as "traf_out"
                 "traf_between": [], # Same structure as "traf_out"
-            } 
+                "reply_in": [],     # Same structure as "traf_out"
+                "reply_out": []     # Same structure as "traf_out"
+            }   
             for i in range(len(self.points[1]))
 }
     
@@ -713,7 +715,7 @@ class NoCTimelinePlotter(NoCPlotter):
                     if history_bit.start >= start and history_bit.end >= start:
                         if history_bit.rsource == history_bit.rsink == sending_node:
                             duration = history_bit.end - history_bit.start
-                            self.node_events[history_bit.rsource]["traf_out"].append({
+                            self.node_events[history_bit.rsource]["traf_out" if communication_type != 4 else "reply_out"].append({
                                         "start": history_bit.start,
                                         "duration": duration,
                                         "id_task": id_message,
@@ -722,7 +724,7 @@ class NoCTimelinePlotter(NoCPlotter):
                             
                         elif history_bit.rsource == history_bit.rsink == receiving_node:
                             duration = history_bit.end - history_bit.start
-                            self.node_events[history_bit.rsink]["traf_in"].append({
+                            self.node_events[history_bit.rsink]["traf_in" if communication_type != 4 else "reply_in"].append({
                                         "start": history_bit.start,
                                         "duration": duration,
                                         "id_task": id_message,
@@ -783,7 +785,9 @@ class NoCTimelinePlotter(NoCPlotter):
             print(f"Node {node}:")
             print(f"Computation events and duration: {events['comp']}")
             print(f"Traffic events IN and duration: {events['traf_in']}")
+            print(f"Traffic events Reply IN and duration: {events['reply_in']}")
             print(f"Traffic events OUT and duration: {events['traf_out']}")
+            print(f"Traffic events Reply OUT and duration: {events['reply_out']}")
             print(f"Traffic events BETWEEN and duration: {events['traf_between']}")
             print(f"Reconfiguration events and duration: {events['recon']}")
             print()
@@ -796,7 +800,10 @@ class NoCTimelinePlotter(NoCPlotter):
         ('recon', 'seagreen', 'Reconfiguration', 1.0),
         ('traf_out', 'dodgerblue', 'Traffic PE out', 0.7),
         ('traf_in', 'darkorange', 'Traffic PE in', 0.7),
-        ('traf_between', 'silver', 'Traffic NoC', 0.3)]
+        ('traf_between', 'silver', 'Traffic NoC', 0.3),
+        ('reply_in','turquoise', 'Reply PE in', 0.7),
+        ('reply_out','gold', 'Reply PE out', 0.7)
+        ]
 
         used_labels = set()
 
@@ -819,9 +826,9 @@ class NoCTimelinePlotter(NoCPlotter):
                         facecolors=color,
                         label=current_label,
                         alpha=alpha,
-                        edgecolor='black',
-                        linewidth=0.5,
-                        linestyle='--'
+                        #edgecolor='black', #add line around rectangle
+                        #linewidth=0.5,
+                        #linestyle='--'
                     )
                     if current_label:
                         used_labels.add(label)

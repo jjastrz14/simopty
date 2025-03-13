@@ -46,24 +46,24 @@ def create_logger(path_to_json = "/test.json", verbose = False):
     
     #print(logger.print_events())
     
-    if verbose: 
-        for event in logger.events:
-            #print(event)
-            #print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
-                    #f"Info: {event.info}")
+    # if verbose: 
+    #     for event in logger.events:
+    #         #print(event)
+    #         #print(f"Event ID: {event.id}, Type: {event.type}, Cycle: {event.cycle}, Additional info: {event.additional_info}," 
+    #                 #f"Info: {event.info}")
             
-            if event.type == nocsim.EventType.OUT_TRAFFIC:
-                print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
-                print(f"History: {event.info.history}")
-            if event.type == nocsim.EventType.IN_TRAFFIC:
-                print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
-                print(f"History: {event.info.history}")
-            if event.type == nocsim.EventType.START_COMPUTATION:
-                print(f"Type: {event.type}, Event info: {event.info}")
-                print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")  
-            if event.type == nocsim.EventType.START_RECONFIGURATION:
-                print(f"Type: {event.type}, Event info: {event.info}")
-                print(f"Node ID: {event.additional_info}")
+    #         if event.type == nocsim.EventType.OUT_TRAFFIC:
+    #             print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+    #             print(f"History: {event.info.history}")
+    #         if event.type == nocsim.EventType.IN_TRAFFIC:
+    #             print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+    #             print(f"History: {event.info.history}")
+    #         if event.type == nocsim.EventType.START_COMPUTATION:
+    #             print(f"Type: {event.type}, Event info: {event.info}")
+    #             print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")  
+    #         if event.type == nocsim.EventType.START_RECONFIGURATION:
+    #             print(f"Type: {event.type}, Event info: {event.info}")
+    #             print(f"Node ID: {event.additional_info}")
                 
         #     elif event.type == nocsim.EventType.END_COMPUTATION:
         #         print(f"Type: {event.type}, Event info: {event.info}")
@@ -139,22 +139,22 @@ if __name__ == "__main__":
     stub = ss.SimulatorStub(EX_DIR)
     path_data = SAVE_DATA_DIR + "/test.json"
     results, logger = stub.run_simulation(path_data, verbose = False)
-    print(logger.print_events())
+    # print(logger.print_events())
     
-    for event in logger.events:
+    # for event in logger.events:
             
-        if event.type == nocsim.EventType.OUT_TRAFFIC:
-            print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
-            print(f"History: {event.info.history}")
-            print("\n")
-        if event.type == nocsim.EventType.IN_TRAFFIC:
-            print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
-            print(f"History: {event.info.history}")
-            print("\n")
-        if event.type == nocsim.EventType.START_COMPUTATION:
-            print(f"Type: {event.type}, Event info: {event.info}")
-            print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")  
-            print("\n")
+    #     if event.type == nocsim.EventType.OUT_TRAFFIC:
+    #         print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+    #         print(f"History: {event.info.history}")
+    #         print("\n")
+    #     if event.type == nocsim.EventType.IN_TRAFFIC:
+    #         print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+    #         print(f"History: {event.info.history}")
+    #         print("\n")
+    #     if event.type == nocsim.EventType.START_COMPUTATION:
+    #         print(f"Type: {event.type}, Event info: {event.info}")
+    #         print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")  
+    #         print("\n")
     
     #plot_timeline("/test.json", "visual/test.png", verbose = False)
     #plot_3d_animaiton("/test.json", fps = 2, gif_path = "visual/test.gif")

@@ -10,10 +10,11 @@
         "user_defined_traffic": 1,
         "watch_out": "-",
         "logger": 1,
-        "reconfiguration": 0,
-        "reconf_batch_size": 0,
-        "reconf_cycles": 1.0,
-        "max_pe_mem": 10,
+        "reconfiguration": 1,
+        "reconf_batch_size": 4,
+        "reconf_cycles": 12.5,
+        "max_pe_mem": 300,
+        "pe_comp_cycles": 10.0,
         "packet_size": 1,
         "routing_delay": 0,
         "flit_size": 64,
@@ -23,9 +24,7 @@
         "internal_speedup": 1.0,
         "credit_delay": 0,
         "input_speedup": 1,
-        "output_speedup": 1,
-        "watch_file": "../config_files/watch.txt",
-        "print_activity": 0
+        "output_speedup": 1
 
     }
 }

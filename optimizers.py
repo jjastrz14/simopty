@@ -223,11 +223,10 @@ class AntColony(BaseOpt):
         """
         Run the algorithm
         """
-        
         if self.seed is not None:
             np.random.seed(self.seed)
             random.seed(self.seed)
-
+            
         def single_iteration(i, once_every, rho_step = 0):
             all_paths = self.generate_colony_paths()
             self.update_pheromones(all_paths)
@@ -240,7 +239,6 @@ class AntColony(BaseOpt):
             # ax.imshow(slice, cmap = cmap, vmax = vmax)
             # plt.show()
             # plt.close()
-
             self.update_heuristics()
             shortest_path = min(all_paths, key=lambda x: x[1])
             moving_average = np.mean([path[1] for path in all_paths])
@@ -254,14 +252,12 @@ class AntColony(BaseOpt):
 
         shortest_path = None
         all_time_shortest_path = ("placeholder", np.inf)
-
         if self.par.rho_start is not None and self.par.rho_end is not None:
             self.rho = self.par.rho_start
             rho_step = (self.par.rho_end - self.par.rho_start) / self.par.n_iterations
         else:
             self.rho = self.par.rho
             rho_step = 0
-
         if show_traces:
             all_time_shortest_path = self.run_and_show_traces(single_iteration, once_every = once_every, n_iterations = self.par.n_iterations, rho_step = rho_step)
         else:
@@ -280,7 +276,6 @@ class AntColony(BaseOpt):
         """
         Pick the next move of the ant, given the pheromone and heuristic matrices.
         """
-
         # compute a mask to filter out the resources that are already used
         mask = np.array([0 if pe.mem_used + added_space > pe.mem_size else 1 for pe in resources])
 
@@ -308,7 +303,6 @@ class AntColony(BaseOpt):
                             outbound_heuristics[i] += 1 / manhattan_distance(pe, i, self.domain) if manhattan_distance(pe, i, self.domain) != 0 else 1
                     outbound_heuristics = outbound_heuristics / np.sum(outbound_heuristics)
                 
-
         row = (outbound_pheromones ** self.par.alpha) * (outbound_heuristics ** self.par.beta) * mask
         norm_row = (row / row.sum()).flatten()
 
@@ -357,7 +351,6 @@ class AntColony(BaseOpt):
         
         if verbose:
             plot_mapping_gif(mapper, "../visual/solution_mapping.gif")
-
         stub = ss.SimulatorStub()
         result, logger = stub.run_simulation(CONFIG_DUMP_DIR + "/dump.json")
         return result, logger
