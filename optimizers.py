@@ -32,7 +32,7 @@ from utils.plotting_utils import plot_mapping_gif
 import ctypes as c
 from contextlib import closing
 import multiprocessing as mp
-from utils.aco_utils import Ant, vardict, walk_batch, update_pheromones_batch
+from utils.aco_utils import Ant, vardict, walk_batch, update_pheromones_batch, manhattan_distance, random_heuristic_update
 from utils.partitioner_utils import PE
 
 
@@ -276,7 +276,7 @@ class AntColony(BaseOpt):
         return all_time_shortest_path
 
 
-    def pick_move(self, d_level, current, resources, added_space, prev_path):
+    def pick_move(self,task_id, d_level, current, resources, added_space, prev_path, random_heuristic = False):
         """
         Pick the next move of the ant, given the pheromone and heuristic matrices.
         """
@@ -289,7 +289,25 @@ class AntColony(BaseOpt):
             outbound_heuristics = np.ones(self.domain.size)
         else:
             outbound_pheromones = self.tau[d_level-1,current,:]
-            outbound_heuristics = self.eta[d_level-2, current, :]
+            if random_heuristic:
+                outbound_heuristics = self.eta[d_level-1, current, :]
+            else:
+                # find the id of the task on which task_id depends (may be multiple)
+                dependencies = self.task_graph.get_dependencies(task_id)
+                # print("The dependencies of the task are:", dependencies)
+                if len(dependencies) == 0:
+                    outbound_heuristics = self.eta[d_level-1, current, :]
+                else:
+                    # find the PE on which the dependencies are mapped
+                    dependencies_pe = [pe[2] for pe in prev_path if pe[0] in dependencies]
+                    # print("The PEs on which the dependencies are mapped are:", dependencies_pe)
+                    # generate the heuristics to favour the PEs near the  ones where the dependencies are mapped
+                    outbound_heuristics = np.zeros(self.domain.size)
+                    for pe in dependencies_pe:
+                        for i in range(self.domain.size):
+                            outbound_heuristics[i] += 1 / manhattan_distance(pe, i, self.domain) if manhattan_distance(pe, i, self.domain) != 0 else 1
+                    outbound_heuristics = outbound_heuristics / np.sum(outbound_heuristics)
+                
 
         row = (outbound_pheromones ** self.par.alpha) * (outbound_heuristics ** self.par.beta) * mask
         norm_row = (row / row.sum()).flatten()
@@ -312,7 +330,7 @@ class AntColony(BaseOpt):
         for d_level, task_id in enumerate(self.tasks):
             current = prev
             added_space = self.task_graph.get_node(task_id)["size"] if task_id != "start" and task_id != "end" else 0
-            move = self.pick_move(d_level, current, resources, added_space, path) if d_level != self.task_graph.n_nodes else np.inf
+            move = self.pick_move(task_id, d_level, current, resources, added_space, path) if d_level != self.task_graph.n_nodes else np.inf
             # udpate the resources
             if task_id != "start" and task_id != "end" and move != np.inf:
                 resources[move].mem_used += added_space
@@ -402,9 +420,10 @@ class AntColony(BaseOpt):
 
     def update_heuristics(self):
         """
-        Introduce stochasticity in the heuristic matrix.
+        Update the heuristic matrix.
         """
-        self.eta = np.random.rand(self.task_graph.n_nodes-1, self.domain.size, self.domain.size)
+        # RANDOM HEURISTIC UPDATE
+        self.eta = random_heuristic_update(self.task_graph, self.domain)
     
 
 class ParallelAntColony(AntColony):
@@ -461,16 +480,13 @@ class ParallelAntColony(AntColony):
         self.statistics["mdn"] = []
         self.statistics["std"] = []
         self.statistics["best"] = []
-        
+        self.statistics["absolute_best"] = [(np.inf, "placeholder", np.inf)]
+
         #Calculate and store intervals for parallel processing
-        base = self.par.n_best // self.n_processes
-        remainder = self.par.n_best % self.n_processes
-        self.intervals = []
-        start = 0
-        for i in range(self.n_processes):
-            end = start + base + (1 if i < remainder else 0)
-            self.intervals.append((start, end))
-            start = end
+        
+        self.intervals = [ (i, i + self.par.n_ants//self.n_processes + min(i, self.par.n_ants % self.n_processes)) for i in range(0, self.par.n_ants, self.par.n_ants//self.n_processes)]
+        if self.par.n_best >= self.n_processes:
+            self.best_intervals = [ (i, i + self.par.n_best//self.n_processes + min(i, self.par.n_best % self.n_processes)) for i in range(0, self.par.n_best, self.par.n_best//self.n_processes)]
 
     
     def run(self, once_every = 10, show_traces = False):
@@ -508,7 +524,10 @@ class ParallelAntColony(AntColony):
             self.statistics["mdn"].append(moving_average)
             self.statistics["std"].append(moving_std)
             self.statistics["best"].append(shortest_path)
-            
+            if shortest_path[2] < self.statistics["absolute_best"][-1][2]:
+                self.statistics["absolute_best"].append(shortest_path)
+            else:
+                self.statistics["absolute_best"].append(self.statistics["absolute_best"][-1])
             return shortest_path
 
 
@@ -617,8 +636,6 @@ class ParallelAntColony(AntColony):
         with closing(mp.Pool(processes = self.n_processes, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
             # generate the paths in parallel: each process is assigned to a subsed of the ants
             # evenly distributed
-            #intervals = [(i, i + self.par.n_ants//self.n_processes + min(i, self.par.n_ants % self.n_processes)) for i in range(0, self.par.n_ants, self.par.n_ants//self.n_processes)]
-            #print(intervals)
             colony_paths = pool.map_async(walk_batch,[self.ants[start:end] for start, end in self.intervals])
             colony_paths = colony_paths.get()
             
@@ -643,11 +660,16 @@ class ParallelAntColony(AntColony):
             self.par.n_best = len(colony_paths)
         sorted_paths = sorted(colony_paths, key = lambda x : x[2])
         best_paths = sorted_paths[:self.par.n_best]
-        
-        # update the pheromones in parallel
-        with closing(mp.Pool(processes = self.n_processes, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
-            pool.map(update_pheromones_batch, [best_paths[start:end] for start, end in self.intervals])
-        pool.join()
+        if self.par.n_best < self.n_processes:
+            # update the pheromones in parallel
+            with closing(mp.Pool(processes = self.par.n_best, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
+                pool.map(update_pheromones_batch, [[best_paths[i]] for i in range(self.par.n_best)])
+            pool.join()
+        else:
+            # update the pheromones in parallel
+            with closing(mp.Pool(processes = self.n_processes, initializer = ParallelAntColony.init, initargs = (self.tau_start, self.tau, self.eta, (self.task_graph.n_nodes-1, self.domain.size, self.domain.size), (self.task_graph.n_nodes-1, self.domain.size, self.domain.size)))) as pool:
+                pool.map(update_pheromones_batch, [best_paths[start:end] for start, end in self.best_intervals])
+            pool.join()
 
     def update_heuristics(self): 
         # introduce stochasticity in the heuristic matrix

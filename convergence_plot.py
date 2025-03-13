@@ -29,4 +29,4 @@ plt.ylabel("Latency estimation", fontdict={"size": 14})
 plt.title("ACO convergence", fontdict={"size": 16})
 plt.show()
 
-fig.savefig("visual/convergence_28_Feb.png", dpi=300)
+fig.savefig("visual/convergence.png", dpi=300)

@@ -553,6 +553,29 @@ class TaskGraph:
 
 
         return list(self.edges.values())
+    
+    def get_dependencies(self, node_id):
+        """
+        Returns the tasks on which the given task depends.
+
+        Parameters
+        ----------
+        node_id : int
+            The id of the task.
+
+        Returns
+        -------
+        list
+            The list of tasks on which the given task depends.
+        """
+
+        messages =  self.nodes[node_id]["dep"]
+        dep_tasks = []
+        for message in messages:
+            if self.edges[message]["dep"][0] != -1:
+                dep_tasks.append(self.edges[message]["dep"][0])
+        return dep_tasks
+            
 
 
 def model_to_graph(model, source, drain, grouping = True, namefile_task_graph = 'visual/task_graph.png', verbose = False):
@@ -584,12 +607,13 @@ def model_to_graph(model, source, drain, grouping = True, namefile_task_graph = 
         #taks id from 0 to n-1
         #dep id from n, defined below
         task_id = 0
-        #dep_id = 10 ** math.ceil(math.log10(len(parts.items())))
+        # dep_id starts from the closest power of 10 that is greater than the number of tasks
+        dep_id = 10**math.ceil(math.log10(len(parts) + 1)) 
         layer_id = 0
    
         # DIRTY FIX: the scaling factors should be included in restart rather than simopty
-        mem_scaling_factor = 1 #SCALING SWITCHED OFF # byte/flit (comment: I think it's 64 bits per a fleet)
-        comp_scaling_factor = 100 #100 # FLOPs per cycle
+        # mem_scaling_factor = 64 # byte/flit
+        # comp_scaling_factor = 100 # FLOPs per cycle
 
         # assign task ids to the partitions
         for layer, partitions in parts.items():
@@ -601,7 +625,7 @@ def model_to_graph(model, source, drain, grouping = True, namefile_task_graph = 
                 partition.layer_id = layer_id
 
                 # Define computing time and task size
-                computing_time = int(partition.FLOPs//comp_scaling_factor)
+                computing_time = int(partition.FLOPs)
                 computing_time = 1 if computing_time == 0 else computing_time
                 task_size = int(partition.tot_size)
                 task_size = 1 if task_size == 0 else task_size
@@ -648,10 +672,10 @@ def model_to_graph(model, source, drain, grouping = True, namefile_task_graph = 
 
                 # Define communication type and size
                 comm_type = "WRITE" if isinstance(partition1.layer, layers.InputLayer) else "WRITE_REQ"
-                comm_size = int(weight//mem_scaling_factor) 
+                comm_size = int(weight) 
                 if comm_size == 0:
                     comm_size = 0 if weight == 0 else 1
-                processing_time =int(0.5 * comm_size)
+                processing_time =int(comm_size)
 
                 if comm_size > 0:
                     dep_graph.add_dependency_fully_qualified(first_node, second_node , id = dep_id, type = comm_type , size = comm_size, pt_required= processing_time , cl = 0, dep= [-1] if isinstance(partition1.layer, layers.InputLayer) else [partition1.task_id])
@@ -661,7 +685,7 @@ def model_to_graph(model, source, drain, grouping = True, namefile_task_graph = 
 
         # Finally, connect the last layer partitions to the "end" node
         for partition in parts[model.layers[-1].name]:
-            results = int(np.prod(partition.out_bounds)) // mem_scaling_factor
+            results = int(np.prod(partition.out_bounds))
             results = 1 if results == 0 else results
             dep_graph.add_dependency_fully_qualified(partition.task_id, "end", id = dep_id, type = "WRITE", size = results, pt_required = processing_time, cl = 0, dep = [partition.task_id])
             dep_id += 1

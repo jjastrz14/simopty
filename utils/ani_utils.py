@@ -25,6 +25,9 @@ import numpy as np
 import json
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import matplotlib.ticker as ticker
+from matplotlib.ticker import MaxNLocator
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
