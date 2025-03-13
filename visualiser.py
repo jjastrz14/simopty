@@ -44,6 +44,8 @@ def create_logger(path_to_json = "/test.json", verbose = False):
     path_data = SAVE_DATA_DIR + path_to_json
     results, logger = stub.run_simulation(path_data, verbose = False)
     
+    #print(logger.print_events())
+    
     if verbose: 
         for event in logger.events:
             #print(event)
@@ -132,11 +134,31 @@ def generate_animation_timeline_3d_plot(path_to_json = "/test.json", fps = 2, an
     
 
 if __name__ == "__main__":
-
     
-    #plot_timeline("/test_16_flit.json", "visual/timeline_test.png", verbose = True)
+    # Create a SimulatorStub object
+    stub = ss.SimulatorStub(EX_DIR)
+    path_data = SAVE_DATA_DIR + "/test.json"
+    results, logger = stub.run_simulation(path_data, verbose = False)
+    print(logger.print_events())
+    
+    for event in logger.events:
+            
+        if event.type == nocsim.EventType.OUT_TRAFFIC:
+            print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+            print(f"History: {event.info.history}")
+            print("\n")
+        if event.type == nocsim.EventType.IN_TRAFFIC:
+            print(f"Type: {event.type}, Type of message {event.ctype}, Event info: {event.info}")
+            print(f"History: {event.info.history}")
+            print("\n")
+        if event.type == nocsim.EventType.START_COMPUTATION:
+            print(f"Type: {event.type}, Event info: {event.info}")
+            print(f"Node ID: {event.info.node} , Add_info Node ID {event.additional_info}")  
+            print("\n")
+    
+    #plot_timeline("/test.json", "visual/test.png", verbose = False)
     #plot_3d_animaiton("/test.json", fps = 2, gif_path = "visual/test.gif")
-    generate_animation_timeline_3d_plot("/test_64_flit.json", fps = 1, animation_path = "visual/flit_64.mp4")
+    #generate_animation_timeline_3d_plot("/test_64_flit.json", fps = 1, animation_path = "visual/flit_64.mp4")
     print("Done!")
     
 
