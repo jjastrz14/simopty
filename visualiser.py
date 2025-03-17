@@ -43,7 +43,7 @@ def create_logger(path_to_json = "/test.json", verbose = False):
 
     path_data = SAVE_DATA_DIR + path_to_json
     results, logger = stub.run_simulation(path_data, verbose = False)
-    
+
     #print(logger.print_events())
     
     # if verbose: 
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     
     #plot_timeline("/test.json", "visual/test.png", verbose = False)
     #plot_3d_animaiton("/test.json", fps = 2, gif_path = "visual/test.gif")
-    #generate_animation_timeline_3d_plot("/test_64_flit.json", fps = 1, animation_path = "visual/flit_64.mp4")
+    generate_animation_timeline_3d_plot("/test_64_flit.json", fps = 1, animation_path = "visual/flit_64.mp4")
     print("Done!")
     
 
